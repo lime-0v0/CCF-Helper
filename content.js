@@ -373,10 +373,20 @@ async function injectFavButton(menu) {
   menu.insertBefore(btn, menu.firstChild);
 }
 
+// contextmenu 이벤트에서 클릭 Y 좌표 캡처
+let _ctxClickY = 0;
+document.addEventListener("contextmenu", (e) => { _ctxClickY = e.clientY; }, true);
+
 // 메뉴가 뷰포트 아래로 잘리면 위로 뒤집음 + 그래도 넘치면 스크롤
 function fixMenuOverflow(menu) {
-  // MUI 가 inline style 을 다 쓴 뒤에 실행
   setTimeout(() => requestAnimationFrame(() => {
+    // ul.scrollHeight = overflow 무관하게 실제 전체 콘텐츠 높이
+    const menuH = menu.scrollHeight;
+    const viewH = window.innerHeight;
+    const clickY = _ctxClickY;
+
+    if (clickY + menuH <= viewH - 4) return; // 충분한 공간 → 보정 불필요
+
     // position: fixed/absolute 인 조상 컨테이너 탐색
     let container = menu;
     while (container && container !== document.body) {
@@ -386,22 +396,13 @@ function fixMenuOverflow(menu) {
     }
     if (!container || container === document.body) return;
 
-    // scrollHeight = 잘리기 전 실제 전체 높이 (getBoundingClientRect 는 잘린 값)
-    const fullH   = container.scrollHeight;
-    const curTop  = parseFloat(container.style.top);
-    const topVal  = isNaN(curTop) ? container.getBoundingClientRect().top : curTop;
-    const viewH   = window.innerHeight;
-
-    if (topVal + fullH <= viewH - 4) return; // 안 잘림
-
     // 클릭 위치 위쪽으로 뒤집기
-    const newTop = Math.max(4, topVal - fullH);
+    const newTop = Math.max(4, clickY - menuH);
     container.style.top = newTop + "px";
 
-    // 그래도 화면보다 크면 max-height + 스크롤
-    const availH = viewH - newTop - 8;
-    if (fullH > availH) {
-      menu.style.maxHeight = availH + "px";
+    // 메뉴가 뷰포트 자체보다 길면 max-height + 스크롤
+    if (menuH > viewH - 8) {
+      menu.style.maxHeight = (viewH - newTop - 8) + "px";
       menu.style.overflowY = "auto";
     }
   }), 0);
