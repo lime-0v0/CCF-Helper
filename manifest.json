@@ -17,6 +17,16 @@
         "https://ccfolia.com/rooms/*"
       ],
       "js": [
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://ccfolia.com/rooms/*"
+      ],
+      "js": [
         "content.js"
       ],
       "run_at": "document_idle"
