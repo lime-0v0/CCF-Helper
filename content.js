@@ -342,8 +342,8 @@ function injectFavButton(menu) {
     "padding:6px 16px", "cursor:pointer",
     "font-size:0.875rem", "color:#ffd700",
     "list-style:none", "user-select:none",
-    "border-top:1px solid rgba(255,255,255,0.12)",
-    "margin-top:4px",
+    "border-bottom:1px solid rgba(255,255,255,0.12)",
+    "margin-bottom:4px",
   ].join(";");
   // 기존 아이템이 있으면 폰트 크기를 맞춤
   if (sample) {
@@ -369,7 +369,8 @@ function injectFavButton(menu) {
     await addPanelToFavorites(panelData);
   });
 
-  menu.appendChild(btn);
+  // 맨 위에 삽입 — 하단 appendChild 시 화면 밖으로 잘리는 문제 방지
+  menu.insertBefore(btn, menu.firstChild);
 }
 
 // MutationObserver: ccfolia의 [role="menu"] 등장 감지
