@@ -117,50 +117,70 @@
 
   document.addEventListener("contextmenu", (e) => {
     _contextPanelCache = null;
-    try { _contextPanelCache = _extractPanelFromEl(e.target); } catch (_) {}
+    try {
+      console.log("[CCFHelper:ctx] contextmenu target:", e.target.tagName, e.target.className?.slice?.(0, 60));
+      _contextPanelCache = _extractPanelFromEl(e.target);
+      console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
+    } catch (err) {
+      console.warn("[CCFHelper:ctx] extraction error:", err);
+    }
   }, true);
 
   function _extractPanelFromEl(el) {
     let node = el;
+    let domDepth = 0;
     while (node && node !== document.documentElement) {
-      const result = _tryFiber(node);
+      const result = _tryFiber(node, domDepth);
       if (result) return result;
       node = node.parentElement;
+      domDepth++;
     }
+    console.warn("[CCFHelper:ctx] DOM depth exhausted at", domDepth, "levels — no panel found");
     return null;
   }
 
-  function _tryFiber(el) {
+  function _tryFiber(el, domDepth) {
     const key = Object.keys(el).find(k =>
       k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
     );
     if (!key) return null;
     let fiber = el[key];
-    for (let i = 0; fiber && i < 60; i++, fiber = fiber.return) {
-      const r = _matchProps(fiber.memoizedProps);
+    for (let i = 0; fiber && i < 80; i++, fiber = fiber.return) {
+      const props = fiber.memoizedProps;
+      if (!props || typeof props !== "object") continue;
+      // 의미 있어 보이는 props 로그 (text/memo/width 중 하나라도 있으면)
+      if (props.text != null || props.memo != null || props.width != null || props.z != null) {
+        console.log(`[CCFHelper:fiber] dom=${domDepth} fiber=${i}`,
+          Object.keys(props).slice(0, 14),
+          { text: props.text?.slice?.(0, 20), memo: props.memo?.slice?.(0, 20),
+            width: props.width, height: props.height, z: props.z, type: props.type });
+      }
+      const r = _matchProps(props, domDepth, i);
       if (r) return r;
     }
     return null;
   }
 
-  function _matchProps(props) {
+  function _matchProps(props, domDepth, fiberDepth) {
     if (!props || typeof props !== "object" || Array.isArray(props)) return null;
     // Marker: Firestore field name "text" = 메모 내용
     if (typeof props.text === "string" && props.text.trim() &&
         props.width != null && props.height != null &&
         props.z != null) {
+      console.log(`[CCFHelper:match] MARKER hit at dom=${domDepth} fiber=${fiberDepth}`, props);
       return _buildData("marker", props.text, props);
     }
     // Screen: "memo" 필드 + type === "object"
     if (typeof props.memo === "string" && props.memo.trim() &&
         props.width != null && props.height != null) {
+      console.log(`[CCFHelper:match] SCREEN hit at dom=${domDepth} fiber=${fiberDepth}`, props);
       return _buildData("screen", props.memo, props);
     }
     // 중첩 객체 탐색
     for (const k of ["marker", "item", "panel", "data", "value"]) {
       const v = props[k];
       if (v && typeof v === "object" && !Array.isArray(v)) {
-        const r = _matchProps(v);
+        const r = _matchProps(v, domDepth, fiberDepth);
         if (r) return r;
       }
     }
