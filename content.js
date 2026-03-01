@@ -373,38 +373,17 @@ async function injectFavButton(menu) {
   menu.insertBefore(btn, menu.firstChild);
 }
 
-// contextmenu 이벤트에서 클릭 Y 좌표 캡처
-let _ctxClickY = 0;
-document.addEventListener("contextmenu", (e) => { _ctxClickY = e.clientY; }, true);
-
-// 메뉴가 뷰포트 아래로 잘리면 위로 뒤집음 + 그래도 넘치면 스크롤
-function fixMenuOverflow(menu) {
+// 메뉴를 클릭 위치에서 살짝 위로 올림
+function nudgeMenuUp(menu) {
   setTimeout(() => requestAnimationFrame(() => {
-    // ul.scrollHeight = overflow 무관하게 실제 전체 콘텐츠 높이
-    const menuH = menu.scrollHeight;
-    const viewH = window.innerHeight;
-    const clickY = _ctxClickY;
-
-    if (clickY + menuH <= viewH - 4) return; // 충분한 공간 → 보정 불필요
-
-    // position: absolute 인 조상 탐색 (fixed 는 MUI Modal root — 제외)
     let container = menu;
     while (container && container !== document.body) {
-      const pos = window.getComputedStyle(container).position;
-      if (pos === "absolute") break;
+      if (window.getComputedStyle(container).position === "absolute") break;
       container = container.parentElement;
     }
     if (!container || container === document.body) return;
-
-    // 클릭 위치 위쪽으로 뒤집기
-    const newTop = Math.max(4, clickY - menuH);
-    container.style.top = newTop + "px";
-
-    // 메뉴가 뷰포트 자체보다 길면 max-height + 스크롤
-    if (menuH > viewH - 8) {
-      menu.style.maxHeight = (viewH - newTop - 8) + "px";
-      menu.style.overflowY = "auto";
-    }
+    const curTop = parseFloat(container.style.top);
+    if (!isNaN(curTop)) container.style.top = Math.max(4, curTop - 80) + "px";
   }), 0);
 }
 
@@ -415,10 +394,10 @@ const _ctxObserver = new MutationObserver((mutations) => {
       if (node.nodeType !== 1) continue;
       if (node.getAttribute?.("role") === "menu") {
         injectFavButton(node);
-        fixMenuOverflow(node);
+        nudgeMenuUp(node);
       } else {
         const menu = node.querySelector?.("[role='menu']");
-        if (menu) { injectFavButton(menu); fixMenuOverflow(menu); }
+        if (menu) { injectFavButton(menu); nudgeMenuUp(menu); }
       }
     }
   }
