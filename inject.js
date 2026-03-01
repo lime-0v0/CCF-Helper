@@ -112,10 +112,219 @@
   setTimeout(() => { if (!authToken) tryFirebaseV8(); }, 1000);
   setTimeout(() => { if (!authToken) { tryFirebaseV8(); tryLocalStorage(); } }, 3000);
 
+  // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
+  let _contextPanelCache = null;
+
+  document.addEventListener("contextmenu", (e) => {
+    _contextPanelCache = null;
+    try {
+      console.log("[CCFHelper:ctx] contextmenu target:", e.target.tagName, e.target.className?.slice?.(0, 60));
+      _contextPanelCache = _extractPanelFromEl(e.target);
+      console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
+    } catch (err) {
+      console.warn("[CCFHelper:ctx] extraction error:", err);
+    }
+  }, true);
+
+  function _extractPanelFromEl(el) {
+    // ── 1차: DOM 속성에서 직접 읽기 ─────────────────────────────────────
+    const domResult = _extractFromDom(el);
+    if (domResult) return domResult;
+
+    // ── 2차: React fiber fallback (기존 코드) ───────────────────────────
+    let node = el;
+    let domDepth = 0;
+    while (node && node !== document.documentElement) {
+      const result = _tryFiber(node, domDepth);
+      if (result) return result;
+      node = node.parentElement;
+      domDepth++;
+    }
+    console.warn("[CCFHelper:ctx] DOM depth exhausted at", domDepth, "levels — no panel found");
+    return null;
+  }
+
+  /** DOM 속성 직접 추출 (ccfolia가 aria-label / style에 데이터를 노출함) */
+  function _extractFromDom(el) {
+    let text = "";
+    let movableEl = null;
+
+    // ─── 1차: data-dragging 컨테이너 (스크린 패널)
+    let panelEl = el;
+    for (let i = 0; i < 12 && panelEl && panelEl !== document.documentElement; i++) {
+      if (panelEl.dataset && panelEl.dataset.dragging !== undefined) break;
+      panelEl = panelEl.parentElement;
+    }
+    if (panelEl && panelEl.dataset?.dragging !== undefined) {
+      text = panelEl.getAttribute("aria-label") || "";
+      movableEl = panelEl.closest?.(".movable");
+    }
+
+    // ─── 2차: .movable + 자식 [aria-label] (마커 패널 — data-dragging 없음)
+    if (!text) {
+      let node = el;
+      for (let i = 0; i < 12 && node && node !== document.documentElement; i++) {
+        if (node.classList?.contains("movable")) break;
+        node = node.parentElement;
+      }
+      if (node?.classList?.contains("movable")) {
+        movableEl = node;
+        // draggable 버튼 안의 첫 번째 의미있는 aria-label 탐색
+        const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
+        const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
+        text = labelEl?.getAttribute("aria-label") || "";
+      }
+    }
+
+    if (!text || !movableEl) return null;
+
+    // imageUrl: 패널 안의 img 태그
+    const img = movableEl.querySelector("img");
+    const imageUrl = img?.src || undefined;
+
+    // width / height / z: .movable 인라인 style
+    const width  = parseFloat(movableEl.style.width)  || 0;
+    const height = parseFloat(movableEl.style.height) || 0;
+    const z      = parseInt(movableEl.style.zIndex)   || 1;
+
+    const PX_PER_GRID = 24;
+    const result = {
+      type: imageUrl ? "card" : "marker",
+      memo: text,
+      width:           width  ? Math.round(width  / PX_PER_GRID) : 2,
+      height:          height ? Math.round(height / PX_PER_GRID) : 2,
+      overlapPriority: z,
+      fixedPlacement:  false,
+      fixedSize:       false,
+      clickAction:     "none",
+    };
+    if (imageUrl) result.imageUrl = imageUrl;
+
+    console.log("[CCFHelper:ctx] DOM extraction success:", result);
+    return result;
+  }
+
+  function _tryFiber(el, domDepth) {
+    const key = Object.keys(el).find(k =>
+      k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
+    );
+    if (!key) {
+      if (domDepth < 6) console.log(`[CCFHelper:fiber] dom=${domDepth} NO fiber key (${el.tagName}.${String(el.className).slice(0,30)})`);
+      return null;
+    }
+    let fiber = el[key];
+    let fiberCount = 0;
+    for (let i = 0; fiber && i < 80; i++, fiber = fiber.return) {
+      fiberCount++;
+      const props = fiber.memoizedProps;
+
+      // ── props 전체 덤프 (처음 20 레벨) ──
+      if (i < 20 && props && typeof props === "object") {
+        const keys = Object.keys(props);
+        const sample = {};
+        for (const k of keys.slice(0, 8)) {
+          const v = props[k];
+          sample[k] = typeof v === "string" ? v.slice(0, 30)
+                    : (v && typeof v === "object") ? `{${Object.keys(v).slice(0,4).join(",")}}`
+                    : v;
+        }
+        console.log(`[CCFHelper:fiber] dom=${domDepth} f=${i} [${keys.slice(0,10).join(",")}]`, sample);
+      }
+
+      // ── memoizedState 덤프 (hook state / Redux useSelector 결과) ──
+      if (i < 20) {
+        let hs = fiber.memoizedState;
+        let hi = 0;
+        while (hs && hi < 8) {
+          const sv = hs.memoizedState;
+          if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+            const skeys = Object.keys(sv);
+            if (skeys.length > 1) {
+              console.log(`[CCFHelper:hookState] dom=${domDepth} f=${i} hook=${hi} [${skeys.slice(0,8).join(",")}]`, sv);
+            }
+          }
+          hs = hs.next; hi++;
+        }
+      }
+
+      if (!props || typeof props !== "object") continue;
+      const r = _matchProps(props, domDepth, i);
+      if (r) return r;
+    }
+    if (domDepth < 4) console.log(`[CCFHelper:fiber] dom=${domDepth} done — ${fiberCount} fibers, no match`);
+    return null;
+  }
+
+  function _matchProps(props, domDepth, fiberDepth) {
+    if (!props || typeof props !== "object" || Array.isArray(props)) return null;
+    // Marker: Firestore field name "text" = 메모 내용
+    if (typeof props.text === "string" && props.text.trim() &&
+        props.width != null && props.height != null &&
+        props.z != null) {
+      console.log(`[CCFHelper:match] MARKER hit at dom=${domDepth} fiber=${fiberDepth}`, props);
+      return _buildData("marker", props.text, props);
+    }
+    // Screen: "memo" 필드 + type === "object"
+    if (typeof props.memo === "string" && props.memo.trim() &&
+        props.width != null && props.height != null) {
+      console.log(`[CCFHelper:match] SCREEN hit at dom=${domDepth} fiber=${fiberDepth}`, props);
+      return _buildData("screen", props.memo, props);
+    }
+    // 중첩 객체 탐색
+    for (const k of ["marker", "item", "panel", "data", "value"]) {
+      const v = props[k];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const r = _matchProps(v, domDepth, fiberDepth);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
+
+  function _buildData(type, memo, props) {
+    const d = {
+      type,
+      memo: String(memo),
+      width:           Number(props.width)  || (type === "screen" ? 4 : 2),
+      height:          Number(props.height) || (type === "screen" ? 4 : 2),
+      overlapPriority: Number(props.z ?? props.overlapPriority ?? 1),
+      fixedPlacement:  Boolean(props.locked   ?? props.fixedPlacement ?? false),
+      fixedSize:       Boolean(props.freezed  ?? props.fixedSize      ?? false),
+      clickAction:     "none",
+      clickActionText: "",
+    };
+    if (type === "screen") d.asPlanePanel = Boolean(props.asPlanePanel ?? false);
+    if (props.imageUrl) d.imageUrl = props.imageUrl;
+    // clickAction 파싱
+    const ca = props.clickAction;
+    if (ca && typeof ca === "object" && ca.type === "message") {
+      d.clickAction = "sendToChat";
+      d.clickActionText = ca.text ?? "";
+    } else if (typeof ca === "string" && ca !== "none") {
+      d.clickAction = ca;
+    }
+    if (!d.clickActionText) delete d.clickActionText;
+    if (!d.imageUrl) delete d.imageUrl;
+    return d;
+  }
+
   // ── 메시지 수신: content script → inject.js ──────────────────────────
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
     if (!event.data?.__ccfoliaHelper) return;
+
+    // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
+    if (event.data.action === "GET_PANEL_DATA") {
+      const { requestId } = event.data;
+      window.postMessage({
+        __ccfoliaHelper: true,
+        action: "PANEL_DATA_RESULT",
+        requestId,
+        panelData: _contextPanelCache,
+      }, "*");
+      return;
+    }
+
     if (event.data.action !== "CREATE_ITEM") return;
 
     const { requestId, roomId, itemData } = event.data;
