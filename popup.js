@@ -1,13 +1,3 @@
-const autoSaveMarkerEl = document.getElementById("autoSaveMarker");
-const autoSaveScreenEl = document.getElementById("autoSaveScreen");
-const statusMarkerEl   = document.getElementById("statusMarker");
-const statusScreenEl   = document.getElementById("statusScreen");
-
-// Chrome storage 확인
-if (!chrome?.storage?.sync) {
-  console.error("[ERROR] chrome.storage.sync not available");
-}
-
 // Marker JSON 생성기
 const markerWidthEl = document.getElementById("markerWidth");
 const markerHeightEl = document.getElementById("markerHeight");
@@ -34,30 +24,6 @@ const screenClickActionTextEl = document.getElementById("screenClickActionText")
 const screenClickActionGroup = document.getElementById("screenClickActionGroup");
 const screenCopyBtn = document.getElementById("screenCopyBtn");
 const screenGenerator = document.getElementById("screenGenerator");
-
-// 저장된 설정 불러오기
-if (chrome?.storage?.sync) {
-  chrome.storage.sync.get({ autoSaveMarker: true, autoSaveScreen: true }, (data) => {
-    autoSaveMarkerEl.checked = data.autoSaveMarker;
-    autoSaveScreenEl.checked = data.autoSaveScreen;
-    updateStatusMarker(data.autoSaveMarker);
-    updateStatusScreen(data.autoSaveScreen);
-  });
-}
-
-// 마커 토글 변경 시 저장
-autoSaveMarkerEl.addEventListener("change", () => {
-  const autoSaveMarker = autoSaveMarkerEl.checked;
-  chrome.storage.sync.set({ autoSaveMarker });
-  updateStatusMarker(autoSaveMarker);
-});
-
-// 스크린 토글 변경 시 저장
-autoSaveScreenEl.addEventListener("change", () => {
-  const autoSaveScreen = autoSaveScreenEl.checked;
-  chrome.storage.sync.set({ autoSaveScreen });
-  updateStatusScreen(autoSaveScreen);
-});
 
 // Click Action 토글
 markerClickActionEl.addEventListener("change", () => {
@@ -142,26 +108,6 @@ screenCopyBtn.addEventListener("click", () => {
     }, 2000);
   });
 });
-
-function updateStatusMarker(autoSave) {
-  if (autoSave) {
-    statusMarkerEl.className = "status saved";
-    statusMarkerEl.textContent = "✓ 자동 저장 ON — 붙여넣기 후 즉시 완료됩니다";
-  } else {
-    statusMarkerEl.className = "status manual";
-    statusMarkerEl.textContent = "✎ 수동 저장 — 내용 확인 후 Save를 직접 누르세요";
-  }
-}
-
-function updateStatusScreen(autoSave) {
-  if (autoSave) {
-    statusScreenEl.className = "status saved";
-    statusScreenEl.textContent = "✓ 자동 저장 ON — 붙여넣기 후 즉시 완료됩니다";
-  } else {
-    statusScreenEl.className = "status manual";
-    statusScreenEl.textContent = "✎ 수동 저장 — 내용 확인 후 Save를 직접 누르세요";
-  }
-}
 
 // 탭 전환 (disabled 탭은 무시)
 document.querySelectorAll(".tab:not(.disabled)").forEach(tab => {
