@@ -143,21 +143,50 @@
     const key = Object.keys(el).find(k =>
       k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
     );
-    if (!key) return null;
+    if (!key) {
+      if (domDepth < 6) console.log(`[CCFHelper:fiber] dom=${domDepth} NO fiber key (${el.tagName}.${String(el.className).slice(0,30)})`);
+      return null;
+    }
     let fiber = el[key];
+    let fiberCount = 0;
     for (let i = 0; fiber && i < 80; i++, fiber = fiber.return) {
+      fiberCount++;
       const props = fiber.memoizedProps;
-      if (!props || typeof props !== "object") continue;
-      // 의미 있어 보이는 props 로그 (text/memo/width 중 하나라도 있으면)
-      if (props.text != null || props.memo != null || props.width != null || props.z != null) {
-        console.log(`[CCFHelper:fiber] dom=${domDepth} fiber=${i}`,
-          Object.keys(props).slice(0, 14),
-          { text: props.text?.slice?.(0, 20), memo: props.memo?.slice?.(0, 20),
-            width: props.width, height: props.height, z: props.z, type: props.type });
+
+      // ── props 전체 덤프 (처음 20 레벨) ──
+      if (i < 20 && props && typeof props === "object") {
+        const keys = Object.keys(props);
+        const sample = {};
+        for (const k of keys.slice(0, 8)) {
+          const v = props[k];
+          sample[k] = typeof v === "string" ? v.slice(0, 30)
+                    : (v && typeof v === "object") ? `{${Object.keys(v).slice(0,4).join(",")}}`
+                    : v;
+        }
+        console.log(`[CCFHelper:fiber] dom=${domDepth} f=${i} [${keys.slice(0,10).join(",")}]`, sample);
       }
+
+      // ── memoizedState 덤프 (hook state / Redux useSelector 결과) ──
+      if (i < 20) {
+        let hs = fiber.memoizedState;
+        let hi = 0;
+        while (hs && hi < 8) {
+          const sv = hs.memoizedState;
+          if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+            const skeys = Object.keys(sv);
+            if (skeys.length > 1) {
+              console.log(`[CCFHelper:hookState] dom=${domDepth} f=${i} hook=${hi} [${skeys.slice(0,8).join(",")}]`, sv);
+            }
+          }
+          hs = hs.next; hi++;
+        }
+      }
+
+      if (!props || typeof props !== "object") continue;
       const r = _matchProps(props, domDepth, i);
       if (r) return r;
     }
+    if (domDepth < 4) console.log(`[CCFHelper:fiber] dom=${domDepth} done — ${fiberCount} fibers, no match`);
     return null;
   }
 
