@@ -373,9 +373,9 @@ async function injectFavButton(menu) {
   menu.insertBefore(btn, menu.firstChild);
 }
 
-// 메뉴가 뷰포트 아래로 잘리면 위로 올리고, 그래도 넘치면 스크롤 처리
+// 메뉴가 뷰포트 아래로 잘리면 위로 뒤집음 + 그래도 넘치면 스크롤
 function fixMenuOverflow(menu) {
-  // MUI Popper 배치가 끝난 뒤에 실행 (setTimeout 0 → rAF)
+  // MUI 가 inline style 을 다 쓴 뒤에 실행
   setTimeout(() => requestAnimationFrame(() => {
     // position: fixed/absolute 인 조상 컨테이너 탐색
     let container = menu;
@@ -386,19 +386,21 @@ function fixMenuOverflow(menu) {
     }
     if (!container || container === document.body) return;
 
-    const rect = container.getBoundingClientRect();
-    const overflow = rect.bottom - window.innerHeight;
-    if (overflow <= 0) return;
+    // scrollHeight = 잘리기 전 실제 전체 높이 (getBoundingClientRect 는 잘린 값)
+    const fullH   = container.scrollHeight;
+    const curTop  = parseFloat(container.style.top);
+    const topVal  = isNaN(curTop) ? container.getBoundingClientRect().top : curTop;
+    const viewH   = window.innerHeight;
 
-    // 1단계: 컨테이너를 위로 올림
-    const curTop = parseFloat(container.style.top);
-    const rawTop = isNaN(curTop) ? rect.top : curTop;
-    const newTop = Math.max(4, rawTop - overflow - 8);
+    if (topVal + fullH <= viewH - 4) return; // 안 잘림
+
+    // 클릭 위치 위쪽으로 뒤집기
+    const newTop = Math.max(4, topVal - fullH);
     container.style.top = newTop + "px";
 
-    // 2단계: 그래도 뷰포트를 넘으면 메뉴 자체에 max-height + 스크롤
-    const availH = window.innerHeight - newTop - 8;
-    if (rect.height > availH) {
+    // 그래도 화면보다 크면 max-height + 스크롤
+    const availH = viewH - newTop - 8;
+    if (fullH > availH) {
       menu.style.maxHeight = availH + "px";
       menu.style.overflowY = "auto";
     }
