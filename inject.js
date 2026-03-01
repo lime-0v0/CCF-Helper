@@ -161,25 +161,21 @@
     const img = panelEl.querySelector("img");
     const imageUrl = img?.src || undefined;
 
-    // width / height: [data-dragging] 부모 중 인라인 style에 width가 있는 곳
+    // width / height: .movable 조상의 인라인 style (언스케일 실제 px값)
+    // ※ 중간 부모들에 "width:100%" 같은 퍼센트 값이 있으므로 .movable만 읽어야 함
     let width = 0, height = 0;
-    let sizeEl = panelEl.parentElement;
-    for (let i = 0; i < 6 && sizeEl && sizeEl !== document.documentElement; i++) {
-      if (sizeEl.style?.width) {
-        width  = parseFloat(sizeEl.style.width)  || 0;
-        height = parseFloat(sizeEl.style.height) || 0;
-        break;
-      }
-      sizeEl = sizeEl.parentElement;
+    const movableEl = panelEl.closest?.(".movable");
+    if (movableEl?.style?.width) {
+      width  = parseFloat(movableEl.style.width)  || 0;
+      height = parseFloat(movableEl.style.height) || 0;
     }
 
     // z-index: .movable 조상 (ccfolia 공통 클래스)
     let z = 1;
-    const movableEl = panelEl.closest?.(".movable");
     if (movableEl?.style?.zIndex) z = parseInt(movableEl.style.zIndex) || 1;
 
-    // 단위 변환: ccfolia는 내부적으로 px→그리드(1칸=80px)
-    const PX_PER_GRID = 80;
+    // 단위 변환: ccfolia 내부 1그리드 = 24px (실측: 288px→12칸, 240px→10칸)
+    const PX_PER_GRID = 24;
     const gridW = width  ? Math.round(width  / PX_PER_GRID) : 2;
     const gridH = height ? Math.round(height / PX_PER_GRID) : 2;
 
