@@ -119,7 +119,24 @@
     _contextPanelCache = null;
     try {
       console.log("[CCFHelper:ctx] contextmenu target:", e.target.tagName, e.target.className?.slice?.(0, 60));
-      _contextPanelCache = _extractPanelFromEl(e.target);
+
+      // 1차: 이벤트 타겟에서 직접 추출
+      let data = _extractPanelFromEl(e.target);
+
+      // 2차: elementsFromPoint — 뒷면 등 오버레이가 e.target을 가릴 때
+      if (!data && document.elementsFromPoint) {
+        const els = document.elementsFromPoint(e.clientX, e.clientY);
+        for (const el of els) {
+          if (el === e.target || el === document.body || el === document.documentElement) continue;
+          data = _extractPanelFromEl(el);
+          if (data) {
+            console.log("[CCFHelper:ctx] elementsFromPoint hit:", el.tagName, String(el.className).slice(0, 40));
+            break;
+          }
+        }
+      }
+
+      _contextPanelCache = data;
       console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
     } catch (err) {
       console.warn("[CCFHelper:ctx] extraction error:", err);

@@ -162,7 +162,7 @@ if (screenHeader) {
 // ── 기본값 로드 · 저장 · 생성기 반영 ──────────────────────────────────
 const SYS = {
   marker: { width: 2, height: 2, priority: 1, imageUrl: "", fixedPlacement: false, fixedSize: false },
-  screen: { width: 4, height: 4, priority: 1, imageUrl: "", fixedPlacement: false, fixedSize: false, asPlanePanel: false },
+  screen: { width: 4, height: 4, priority: 1, imageUrl: "", coverImageUrl: "", fixedPlacement: false, fixedSize: false, asPlanePanel: false },
 };
 
 function applyGeneratorDefaults(type, saved) {
@@ -170,10 +170,11 @@ function applyGeneratorDefaults(type, saved) {
   const w   = (saved?.width    > 0) ? saved.width    : sys.width;
   const h   = (saved?.height   > 0) ? saved.height   : sys.height;
   const pr  = (saved?.priority > 0) ? saved.priority : sys.priority;
-  const img = saved?.imageUrl ?? "";
-  const fp  = saved?.fixedPlacement ?? false;
-  const fs  = saved?.fixedSize      ?? false;
-  const ap  = saved?.asPlanePanel   ?? false;
+  const img  = saved?.imageUrl      ?? "";
+  const cimg = saved?.coverImageUrl ?? "";
+  const fp   = saved?.fixedPlacement ?? false;
+  const fs   = saved?.fixedSize      ?? false;
+  const ap   = saved?.asPlanePanel   ?? false;
 
   // 기본값 입력 필드
   const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
@@ -184,7 +185,10 @@ function applyGeneratorDefaults(type, saved) {
   set(`${type}DefaultImageUrl`, img);
   setChk(`${type}DefaultFixedPlacement`, fp);
   setChk(`${type}DefaultFixedSize`,      fs);
-  if (type === "screen") setChk("screenDefaultAsPlanePanel", ap);
+  if (type === "screen") {
+    set("screenDefaultCoverImageUrl", cimg);
+    setChk("screenDefaultAsPlanePanel", ap);
+  }
 
   // 생성기 초기값
   set(`${type}Width`,    w);
@@ -193,7 +197,10 @@ function applyGeneratorDefaults(type, saved) {
   set(`${type}ImageUrl`, img);
   setChk(`${type}FixedPlacement`, fp);
   setChk(`${type}FixedSize`,      fs);
-  if (type === "screen") setChk("screenAsPlanePanel", ap);
+  if (type === "screen") {
+    set("screenCoverImageUrl", cimg);
+    setChk("screenAsPlanePanel", ap);
+  }
 }
 
 function saveAndApplyDefaults(type) {
@@ -201,12 +208,13 @@ function saveAndApplyDefaults(type) {
   const w   = parseInt(get(`${type}DefaultWidth`)?.value)    || 0;
   const h   = parseInt(get(`${type}DefaultHeight`)?.value)   || 0;
   const pr  = parseInt(get(`${type}DefaultPriority`)?.value) || 0;
-  const img = get(`${type}DefaultImageUrl`)?.value ?? "";
-  const fp  = get(`${type}DefaultFixedPlacement`)?.checked ?? false;
-  const fs  = get(`${type}DefaultFixedSize`)?.checked      ?? false;
-  const ap  = get("screenDefaultAsPlanePanel")?.checked    ?? false;
+  const img  = get(`${type}DefaultImageUrl`)?.value  ?? "";
+  const cimg = get("screenDefaultCoverImageUrl")?.value ?? "";
+  const fp   = get(`${type}DefaultFixedPlacement`)?.checked ?? false;
+  const fs   = get(`${type}DefaultFixedSize`)?.checked      ?? false;
+  const ap   = get("screenDefaultAsPlanePanel")?.checked    ?? false;
   const saved = { width: w, height: h, priority: pr, imageUrl: img, fixedPlacement: fp, fixedSize: fs,
-                  ...(type === "screen" ? { asPlanePanel: ap } : {}) };
+                  ...(type === "screen" ? { coverImageUrl: cimg, asPlanePanel: ap } : {}) };
   chrome.storage.local.set({ [`${type}Defaults`]: saved });
   applyGeneratorDefaults(type, saved);
 }
@@ -222,6 +230,7 @@ chrome.storage.local.get(["markerDefaults", "screenDefaults"], (data) => {
   document.getElementById(`markerDefault${field}`)?.addEventListener("change", () => saveAndApplyDefaults("marker"));
   document.getElementById(`screenDefault${field}`)?.addEventListener("change", () => saveAndApplyDefaults("screen"));
 });
+document.getElementById("screenDefaultCoverImageUrl")?.addEventListener("change", () => saveAndApplyDefaults("screen"));
 document.getElementById("screenDefaultAsPlanePanel")?.addEventListener("change", () => saveAndApplyDefaults("screen"));
 
 // =============================================
