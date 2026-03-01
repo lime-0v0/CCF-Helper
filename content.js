@@ -328,8 +328,15 @@ async function addPanelToFavorites(panelData) {
   showToast(`[${typeLabel}] "${name}" 즐겨찾기에 추가됨!`);
 }
 
-function injectFavButton(menu) {
+async function injectFavButton(menu) {
   if (menu.querySelector(".ccfh-ctx-btn")) return;
+
+  // 캐릭터(피스)는 inject.js에서 null 반환 → 버튼 추가 안 함
+  const panelData = await getPanelDataFromInject();
+  if (!panelData) return;
+
+  // 메뉴가 이미 닫힌 경우(async 동안 제거됨) 중단
+  if (!menu.isConnected) return;
 
   // 기존 메뉴 아이템 스타일 참고용
   const sample = menu.querySelector("li");
@@ -345,7 +352,6 @@ function injectFavButton(menu) {
     "border-bottom:1px solid rgba(255,255,255,0.12)",
     "margin-bottom:4px",
   ].join(";");
-  // 기존 아이템이 있으면 폰트 크기를 맞춤
   if (sample) {
     const fs = window.getComputedStyle(sample).fontSize;
     if (fs) btn.style.fontSize = fs;
@@ -360,12 +366,6 @@ function injectFavButton(menu) {
     e.preventDefault();
     // 메뉴 닫기
     setTimeout(() => document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })), 10);
-
-    const panelData = await getPanelDataFromInject();
-    if (!panelData) {
-      showToast("패널 데이터를 추출할 수 없습니다. 해당 패널 위를 우클릭해 주세요.", true);
-      return;
-    }
     await addPanelToFavorites(panelData);
   });
 
