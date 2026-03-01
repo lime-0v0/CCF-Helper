@@ -53,6 +53,7 @@ function parseJson(raw) {
     height:          data.height          ?? (isScreen ? 4 : 2),
     overlapPriority: data.overlapPriority ?? 1,
     memo:            String(data.memo),
+    imageUrl:        data.imageUrl        ?? null,
     fixedPlacement:  data.fixedPlacement  ?? false,
     fixedSize:       data.fixedSize       ?? false,
     asPlanePanel:    data.asPlanePanel    ?? false,
