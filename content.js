@@ -387,11 +387,11 @@ function fixMenuOverflow(menu) {
 
     if (clickY + menuH <= viewH - 4) return; // 충분한 공간 → 보정 불필요
 
-    // position: fixed/absolute 인 조상 컨테이너 탐색
+    // position: absolute 인 조상 탐색 (fixed 는 MUI Modal root — 제외)
     let container = menu;
     while (container && container !== document.body) {
       const pos = window.getComputedStyle(container).position;
-      if (pos === "fixed" || pos === "absolute") break;
+      if (pos === "absolute") break;
       container = container.parentElement;
     }
     if (!container || container === document.body) return;
