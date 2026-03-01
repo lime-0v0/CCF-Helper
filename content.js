@@ -373,26 +373,36 @@ async function injectFavButton(menu) {
   menu.insertBefore(btn, menu.firstChild);
 }
 
-// 메뉴가 뷰포트 아래로 잘리면 위로 올려 보정
+// 메뉴가 뷰포트 아래로 잘리면 위로 올리고, 그래도 넘치면 스크롤 처리
 function fixMenuOverflow(menu) {
-  // position 을 가진 조상 컨테이너를 찾는다 (MUI Popover 등)
-  let container = menu;
-  while (container && container !== document.body) {
-    const pos = window.getComputedStyle(container).position;
-    if (pos === "fixed" || pos === "absolute") break;
-    container = container.parentElement;
-  }
-  if (!container || container === document.body) return;
+  // MUI Popper 배치가 끝난 뒤에 실행 (setTimeout 0 → rAF)
+  setTimeout(() => requestAnimationFrame(() => {
+    // position: fixed/absolute 인 조상 컨테이너 탐색
+    let container = menu;
+    while (container && container !== document.body) {
+      const pos = window.getComputedStyle(container).position;
+      if (pos === "fixed" || pos === "absolute") break;
+      container = container.parentElement;
+    }
+    if (!container || container === document.body) return;
 
-  // 레이아웃이 완성된 뒤에 확인
-  requestAnimationFrame(() => {
     const rect = container.getBoundingClientRect();
     const overflow = rect.bottom - window.innerHeight;
-    if (overflow > 0) {
-      const curTop = parseFloat(container.style.top) || rect.top;
-      container.style.top = Math.max(0, curTop - overflow - 8) + "px";
+    if (overflow <= 0) return;
+
+    // 1단계: 컨테이너를 위로 올림
+    const curTop = parseFloat(container.style.top);
+    const rawTop = isNaN(curTop) ? rect.top : curTop;
+    const newTop = Math.max(4, rawTop - overflow - 8);
+    container.style.top = newTop + "px";
+
+    // 2단계: 그래도 뷰포트를 넘으면 메뉴 자체에 max-height + 스크롤
+    const availH = window.innerHeight - newTop - 8;
+    if (rect.height > availH) {
+      menu.style.maxHeight = availH + "px";
+      menu.style.overflowY = "auto";
     }
-  });
+  }), 0);
 }
 
 // MutationObserver: ccfolia의 [role="menu"] 등장 감지
