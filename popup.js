@@ -368,6 +368,10 @@ async function renderFavTree() {
             <textarea class="edit-memo-input">${escapeHtml(d.memo ?? "")}</textarea>
             <div class="fav-edit-label">IMAGE URL (선택)</div>
             <input class="edit-imageurl-input" type="text" placeholder="https://..." value="${escapeHtml(d.imageUrl ?? "")}">
+            ${d.type === "screen" ? `
+            <div class="fav-edit-label">COVER IMAGE URL (뒷면, 선택)</div>
+            <input class="edit-coverimageurl-input" type="text" placeholder="https://..." value="${escapeHtml(d.coverImageUrl ?? "")}">
+            ` : ""}
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Fixed Placement (위치 고정)</span>
               <input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}>
@@ -480,6 +484,8 @@ async function renderFavTree() {
         data.fixedPlacement = form.querySelector(".edit-fixed-placement")?.checked ?? false;
         data.fixedSize      = form.querySelector(".edit-fixed-size")?.checked      ?? false;
         if (data.type === "screen") {
+          const coverImageUrl = form.querySelector(".edit-coverimageurl-input")?.value.trim();
+          if (coverImageUrl) data.coverImageUrl = coverImageUrl; else delete data.coverImageUrl;
           data.asPlanePanel = form.querySelector(".edit-plane-panel")?.checked ?? false;
         }
         const clickAction = form.querySelector(".edit-click-action").value;

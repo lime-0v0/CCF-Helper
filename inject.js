@@ -136,6 +136,23 @@
         }
       }
 
+      // 3차: .movable 요소를 좌표 기반 hit-test — 뒷면 포탈 오버레이 케이스
+      // (오버레이가 .movable DOM 트리 밖에 렌더링되어 elementsFromPoint가 .movable을 반환 못할 때)
+      if (!data) {
+        const movables = document.querySelectorAll(".movable");
+        for (const movable of movables) {
+          const rect = movable.getBoundingClientRect();
+          if (e.clientX >= rect.left && e.clientX <= rect.right &&
+              e.clientY >= rect.top  && e.clientY <= rect.bottom) {
+            data = _extractFromDom(movable);
+            if (data) {
+              console.log("[CCFHelper:ctx] .movable hit-test success:", data.memo?.slice(0, 20));
+              break;
+            }
+          }
+        }
+      }
+
       _contextPanelCache = data;
       console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
     } catch (err) {
@@ -190,7 +207,7 @@
       if (!text && movableEl) text = _firstLabel(movableEl);
     }
 
-    // ─── 2차: .movable + 자식 [aria-label] → 마커 패널 (data-dragging 없음)
+    // ─── 2차: .movable 조상(또는 자기 자신) 탐색 → 마커/스크린 패널
     if (!text) {
       let node = el;
       for (let i = 0; i < 12 && node && node !== document.documentElement; i++) {
@@ -199,10 +216,19 @@
       }
       if (node?.classList?.contains("movable")) {
         movableEl = node;
-        const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
-        const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
-        text = labelEl?.getAttribute("aria-label") || "";
-        if (!text) text = _firstLabel(movableEl);
+        // 스크린 패널: .movable 안에 [data-dragging] 자식이 있으면 스크린
+        const dataDraggingChild = movableEl.querySelector("[data-dragging]");
+        if (dataDraggingChild) {
+          isScreen = true;
+          text = dataDraggingChild.getAttribute("aria-label") || "";
+        }
+        // 마커 패널 (또는 스크린에서 aria-label 못 찾은 경우)
+        if (!text) {
+          const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
+          const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
+          text = labelEl?.getAttribute("aria-label") || "";
+          if (!text) text = _firstLabel(movableEl);
+        }
       }
     }
 
