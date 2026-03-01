@@ -373,6 +373,28 @@ async function injectFavButton(menu) {
   menu.insertBefore(btn, menu.firstChild);
 }
 
+// 메뉴가 뷰포트 아래로 잘리면 위로 올려 보정
+function fixMenuOverflow(menu) {
+  // position 을 가진 조상 컨테이너를 찾는다 (MUI Popover 등)
+  let container = menu;
+  while (container && container !== document.body) {
+    const pos = window.getComputedStyle(container).position;
+    if (pos === "fixed" || pos === "absolute") break;
+    container = container.parentElement;
+  }
+  if (!container || container === document.body) return;
+
+  // 레이아웃이 완성된 뒤에 확인
+  requestAnimationFrame(() => {
+    const rect = container.getBoundingClientRect();
+    const overflow = rect.bottom - window.innerHeight;
+    if (overflow > 0) {
+      const curTop = parseFloat(container.style.top) || rect.top;
+      container.style.top = Math.max(0, curTop - overflow - 8) + "px";
+    }
+  });
+}
+
 // MutationObserver: ccfolia의 [role="menu"] 등장 감지
 const _ctxObserver = new MutationObserver((mutations) => {
   for (const mut of mutations) {
@@ -380,9 +402,10 @@ const _ctxObserver = new MutationObserver((mutations) => {
       if (node.nodeType !== 1) continue;
       if (node.getAttribute?.("role") === "menu") {
         injectFavButton(node);
+        fixMenuOverflow(node);
       } else {
         const menu = node.querySelector?.("[role='menu']");
-        if (menu) injectFavButton(menu);
+        if (menu) { injectFavButton(menu); fixMenuOverflow(menu); }
       }
     }
   }
