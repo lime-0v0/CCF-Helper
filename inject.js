@@ -155,12 +155,13 @@
     const url = `${base}?updateMask.fieldPaths=markers.${markerId}&updateMask.fieldPaths=updatedAt`;
 
     const markerFields = {
-      text:    { stringValue: d.memo },
-      width:   { integerValue: String(d.width) },
-      height:  { integerValue: String(d.height) },
-      z:       { integerValue: String(d.overlapPriority ?? 1) },
-      locked:  { booleanValue: d.fixedPlacement ?? false },
-      freezed: { booleanValue: d.fixedSize ?? false },
+      text:     { stringValue: d.memo },
+      width:    { integerValue: String(d.width) },
+      height:   { integerValue: String(d.height) },
+      z:        { integerValue: String(d.overlapPriority ?? 1) },
+      locked:   { booleanValue: d.fixedPlacement ?? false },
+      freezed:  { booleanValue: d.fixedSize ?? false },
+      imageUrl: d.imageUrl ? { stringValue: d.imageUrl } : { nullValue: "NULL_VALUE" },
     };
 
     if (d.clickAction === "sendToChat") {
@@ -208,7 +209,7 @@
       ownerColor:    { nullValue: "NULL_VALUE" },
       ownerName:     { nullValue: "NULL_VALUE" },
       memo:          { stringValue: d.memo },
-      imageUrl:      { nullValue: "NULL_VALUE" },
+      imageUrl:      d.imageUrl ? { stringValue: d.imageUrl } : { nullValue: "NULL_VALUE" },
       coverImageUrl: { nullValue: "NULL_VALUE" },
       clickAction:   d.clickAction === "sendToChat"
         ? { mapValue: { fields: {

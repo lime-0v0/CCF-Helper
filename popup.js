@@ -91,6 +91,9 @@ markerCopyBtn.addEventListener("click", () => {
     json.clickActionText = markerClickActionTextEl.value;
   }
 
+  const markerImageUrl = document.getElementById("markerImageUrl")?.value.trim();
+  if (markerImageUrl) json.imageUrl = markerImageUrl;
+
   const jsonStr = JSON.stringify(json);
   navigator.clipboard.writeText(jsonStr).then(() => {
     markerCopyBtn.textContent = "✓ 복사됨!";
@@ -125,6 +128,9 @@ screenCopyBtn.addEventListener("click", () => {
     json.clickAction = screenClickActionEl.value;
     json.clickActionText = screenClickActionTextEl.value;
   }
+
+  const screenImageUrl = document.getElementById("screenImageUrl")?.value.trim();
+  if (screenImageUrl) json.imageUrl = screenImageUrl;
 
   const jsonStr = JSON.stringify(json);
   navigator.clipboard.writeText(jsonStr).then(() => {
@@ -592,6 +598,8 @@ function buildMarkerJson() {
   if (document.getElementById("markerFixedSize")?.checked) json.fixedSize = true;
   const ca = document.getElementById("markerClickAction")?.value;
   if (ca && ca !== "none") { json.clickAction = ca; json.clickActionText = document.getElementById("markerClickActionText")?.value || ""; }
+  const imageUrl = document.getElementById("markerImageUrl")?.value.trim();
+  if (imageUrl) json.imageUrl = imageUrl;
   return json;
 }
 
@@ -609,6 +617,8 @@ function buildScreenJson() {
   if (document.getElementById("screenAsPlanePanel")?.checked) json.asPlanePanel = true;
   const ca = document.getElementById("screenClickAction")?.value;
   if (ca && ca !== "none") { json.clickAction = ca; json.clickActionText = document.getElementById("screenClickActionText")?.value || ""; }
+  const imageUrl = document.getElementById("screenImageUrl")?.value.trim();
+  if (imageUrl) json.imageUrl = imageUrl;
   return json;
 }
 
