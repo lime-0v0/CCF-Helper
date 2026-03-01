@@ -138,15 +138,56 @@
     }
 
     try {
-      const result = await firestoreCreate(roomId, itemData);
+      const result = itemData.type === "marker"
+        ? await firestoreUpsertMarker(roomId, itemData)
+        : await firestoreCreateScreen(roomId, itemData);
       window.postMessage({ __ccfoliaHelper: true, action: "CREATE_RESULT", requestId, success: true, docId: result.name }, "*");
     } catch (e) {
       window.postMessage({ __ccfoliaHelper: true, action: "CREATE_RESULT", requestId, success: false, error: e.message }, "*");
     }
   });
 
-  // ── Firestore REST API: 문서 생성 ────────────────────────────────────
-  async function firestoreCreate(roomId, d) {
+  // ── Firestore REST API: 마커 생성 (room 문서의 markers 맵 PATCH) ──────
+  async function firestoreUpsertMarker(roomId, d) {
+    const markerId = Math.random().toString(36).slice(2, 13);
+    const now = Date.now();
+    const base = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}`;
+    const url = `${base}?updateMask.fieldPaths=markers.${markerId}&updateMask.fieldPaths=updatedAt`;
+
+    const markerFields = {
+      text:    { stringValue: d.memo },
+      width:   { integerValue: String(d.width) },
+      height:  { integerValue: String(d.height) },
+      z:       { integerValue: String(d.overlapPriority ?? 1) },
+      locked:  { booleanValue: d.fixedPlacement ?? false },
+      freezed: { booleanValue: d.fixedSize ?? false },
+    };
+
+    if (d.clickAction === "sendToChat") {
+      markerFields.clickAction = { mapValue: { fields: {
+        type: { stringValue: "message" },
+        text: { stringValue: d.clickActionText ?? "" },
+      }}};
+    }
+
+    const body = {
+      fields: {
+        markers: { mapValue: { fields: { [markerId]: { mapValue: { fields: markerFields } } } } },
+        updatedAt: { integerValue: String(now) },
+      },
+    };
+
+    const resp = await _fetch(url, {
+      method: "PATCH",
+      headers: { "Authorization": `Bearer ${authToken}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!resp.ok) throw new Error(`Firestore ${resp.status}: ${await resp.text()}`);
+    return resp.json();
+  }
+
+  // ── Firestore REST API: 스크린 패널 생성 (items 서브컬렉션 POST) ──────
+  async function firestoreCreateScreen(roomId, d) {
     const url = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/items`;
     const now = Date.now();
 
@@ -180,24 +221,14 @@
       updatedAt:     { integerValue: String(now) },
     };
 
-    if (d.type === "screen" && d.asPlanePanel) {
-      fields.asPlanePanel = { booleanValue: true };
-    }
+    if (d.asPlanePanel) fields.asPlanePanel = { booleanValue: true };
 
     const resp = await _fetch(url, {
       method: "POST",
-      headers: {
-        "Authorization": `Bearer ${authToken}`,
-        "Content-Type": "application/json",
-      },
+      headers: { "Authorization": `Bearer ${authToken}`, "Content-Type": "application/json" },
       body: JSON.stringify({ fields }),
     });
-
-    if (!resp.ok) {
-      const text = await resp.text();
-      throw new Error(`Firestore ${resp.status}: ${text}`);
-    }
-
+    if (!resp.ok) throw new Error(`Firestore ${resp.status}: ${await resp.text()}`);
     return resp.json();
   }
 
