@@ -149,7 +149,7 @@
 
   // ── Firestore REST API: 마커 생성 (room 문서의 markers 맵 PATCH) ──────
   async function firestoreUpsertMarker(roomId, d) {
-    const markerId = Math.random().toString(36).slice(2, 13);
+    const markerId = "m" + Math.random().toString(36).slice(2, 12);
     const now = Date.now();
     const base = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}`;
     const url = `${base}?updateMask.fieldPaths=markers.${markerId}&updateMask.fieldPaths=updatedAt`;
