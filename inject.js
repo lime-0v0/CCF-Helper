@@ -112,10 +112,105 @@
   setTimeout(() => { if (!authToken) tryFirebaseV8(); }, 1000);
   setTimeout(() => { if (!authToken) { tryFirebaseV8(); tryLocalStorage(); } }, 3000);
 
+  // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
+  let _contextPanelCache = null;
+
+  document.addEventListener("contextmenu", (e) => {
+    _contextPanelCache = null;
+    try { _contextPanelCache = _extractPanelFromEl(e.target); } catch (_) {}
+  }, true);
+
+  function _extractPanelFromEl(el) {
+    let node = el;
+    while (node && node !== document.documentElement) {
+      const result = _tryFiber(node);
+      if (result) return result;
+      node = node.parentElement;
+    }
+    return null;
+  }
+
+  function _tryFiber(el) {
+    const key = Object.keys(el).find(k =>
+      k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance")
+    );
+    if (!key) return null;
+    let fiber = el[key];
+    for (let i = 0; fiber && i < 60; i++, fiber = fiber.return) {
+      const r = _matchProps(fiber.memoizedProps);
+      if (r) return r;
+    }
+    return null;
+  }
+
+  function _matchProps(props) {
+    if (!props || typeof props !== "object" || Array.isArray(props)) return null;
+    // Marker: Firestore field name "text" = 메모 내용
+    if (typeof props.text === "string" && props.text.trim() &&
+        props.width != null && props.height != null &&
+        props.z != null) {
+      return _buildData("marker", props.text, props);
+    }
+    // Screen: "memo" 필드 + type === "object"
+    if (typeof props.memo === "string" && props.memo.trim() &&
+        props.width != null && props.height != null) {
+      return _buildData("screen", props.memo, props);
+    }
+    // 중첩 객체 탐색
+    for (const k of ["marker", "item", "panel", "data", "value"]) {
+      const v = props[k];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const r = _matchProps(v);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
+
+  function _buildData(type, memo, props) {
+    const d = {
+      type,
+      memo: String(memo),
+      width:           Number(props.width)  || (type === "screen" ? 4 : 2),
+      height:          Number(props.height) || (type === "screen" ? 4 : 2),
+      overlapPriority: Number(props.z ?? props.overlapPriority ?? 1),
+      fixedPlacement:  Boolean(props.locked   ?? props.fixedPlacement ?? false),
+      fixedSize:       Boolean(props.freezed  ?? props.fixedSize      ?? false),
+      clickAction:     "none",
+      clickActionText: "",
+    };
+    if (type === "screen") d.asPlanePanel = Boolean(props.asPlanePanel ?? false);
+    if (props.imageUrl) d.imageUrl = props.imageUrl;
+    // clickAction 파싱
+    const ca = props.clickAction;
+    if (ca && typeof ca === "object" && ca.type === "message") {
+      d.clickAction = "sendToChat";
+      d.clickActionText = ca.text ?? "";
+    } else if (typeof ca === "string" && ca !== "none") {
+      d.clickAction = ca;
+    }
+    if (!d.clickActionText) delete d.clickActionText;
+    if (!d.imageUrl) delete d.imageUrl;
+    return d;
+  }
+
   // ── 메시지 수신: content script → inject.js ──────────────────────────
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
     if (!event.data?.__ccfoliaHelper) return;
+
+    // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
+    if (event.data.action === "GET_PANEL_DATA") {
+      const { requestId } = event.data;
+      window.postMessage({
+        __ccfoliaHelper: true,
+        action: "PANEL_DATA_RESULT",
+        requestId,
+        panelData: _contextPanelCache,
+      }, "*");
+      return;
+    }
+
     if (event.data.action !== "CREATE_ITEM") return;
 
     const { requestId, roomId, itemData } = event.data;

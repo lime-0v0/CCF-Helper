@@ -274,6 +274,120 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// ── 우클릭 메뉴 → 즐겨찾기 추가 기능 ─────────────────────────────────
+
+function genId() {
+  return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+}
+
+function showToast(msg, isError = false) {
+  const t = document.createElement("div");
+  t.style.cssText = [
+    "position:fixed", "bottom:24px", "right:24px", "z-index:2147483647",
+    `background:${isError ? "#7f0000" : "#1b5e20"}`,
+    "color:#fff", "padding:10px 14px", "border-radius:6px",
+    "font-size:13px", "font-family:sans-serif",
+    "box-shadow:0 2px 10px rgba(0,0,0,.5)", "pointer-events:none",
+    "max-width:280px", "word-break:break-word",
+  ].join(";");
+  t.textContent = "[CCF Helper] " + msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+function getPanelDataFromInject() {
+  return new Promise((resolve) => {
+    const requestId = `ccfh_ctx_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      resolve(null);
+    }, 5000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "PANEL_DATA_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer);
+      window.removeEventListener("message", onMsg);
+      resolve(event.data.panelData ?? null);
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "GET_PANEL_DATA", requestId }, "*");
+  });
+}
+
+async function addPanelToFavorites(panelData) {
+  const name = (panelData.memo || "").slice(0, 20) || "unnamed";
+  const newBm = { id: genId(), folderId: "default", name, data: panelData };
+  await new Promise((resolve) => {
+    chrome.storage.local.get(
+      { folders: [{ id: "default", name: "기본 폴더" }], bookmarks: [] },
+      (d) => { d.bookmarks.push(newBm); chrome.storage.local.set(d, resolve); }
+    );
+  });
+  const typeLabel = panelData.type === "screen" ? "SCR" : "MRK";
+  showToast(`[${typeLabel}] "${name}" 즐겨찾기에 추가됨!`);
+}
+
+function injectFavButton(menu) {
+  if (menu.querySelector(".ccfh-ctx-btn")) return;
+
+  // 기존 메뉴 아이템 스타일 참고용
+  const sample = menu.querySelector("li");
+
+  const btn = document.createElement("li");
+  btn.className = "ccfh-ctx-btn";
+  btn.setAttribute("role", "menuitem");
+  btn.style.cssText = [
+    "display:flex", "align-items:center", "gap:8px",
+    "padding:6px 16px", "cursor:pointer",
+    "font-size:0.875rem", "color:#ffd700",
+    "list-style:none", "user-select:none",
+    "border-top:1px solid rgba(255,255,255,0.12)",
+    "margin-top:4px",
+  ].join(";");
+  // 기존 아이템이 있으면 폰트 크기를 맞춤
+  if (sample) {
+    const fs = window.getComputedStyle(sample).fontSize;
+    if (fs) btn.style.fontSize = fs;
+  }
+  btn.innerHTML = `<span style="font-size:1em">★</span><span>[CCF Helper] 즐겨찾기에 추가</span>`;
+
+  btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(255,215,0,0.15)"; });
+  btn.addEventListener("mouseleave", () => { btn.style.background = ""; });
+
+  btn.addEventListener("click", async (e) => {
+    e.stopPropagation();
+    e.preventDefault();
+    // 메뉴 닫기
+    setTimeout(() => document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })), 10);
+
+    const panelData = await getPanelDataFromInject();
+    if (!panelData) {
+      showToast("패널 데이터를 추출할 수 없습니다. 해당 패널 위를 우클릭해 주세요.", true);
+      return;
+    }
+    await addPanelToFavorites(panelData);
+  });
+
+  menu.appendChild(btn);
+}
+
+// MutationObserver: ccfolia의 [role="menu"] 등장 감지
+const _ctxObserver = new MutationObserver((mutations) => {
+  for (const mut of mutations) {
+    for (const node of mut.addedNodes) {
+      if (node.nodeType !== 1) continue;
+      if (node.getAttribute?.("role") === "menu") {
+        injectFavButton(node);
+      } else {
+        const menu = node.querySelector?.("[role='menu']");
+        if (menu) injectFavButton(menu);
+      }
+    }
+  }
+});
+_ctxObserver.observe(document.body, { childList: true, subtree: true });
+
 // ── paste 이벤트 ──────────────────────────────────────────────────────
 document.addEventListener("paste", async (e) => {
   const t = e.target;
