@@ -115,7 +115,7 @@ async function createPanel(panelData) {
 
   // STEP 3: NOIMAGE 클릭
   const noImageBtn = await waitFor(() =>
-    [...document.querySelectorAll("*")].find(
+    [...document.querySelectorAll("li, span, div, p")].find(
       (el) => el.textContent.trim() === "NOIMAGE" && el.children.length === 0
     )
   );
@@ -124,7 +124,7 @@ async function createPanel(panelData) {
 
   // STEP 4: 목록 맨 아래 NOTEXT 클릭
   const lastItem = await waitFor(() => {
-    const items = [...document.querySelectorAll("*")].filter(
+    const items = [...document.querySelectorAll("li, div")].filter(
       (el) =>
         el.textContent.includes("NOTEXT") &&
         el.children.length <= 5 &&
@@ -159,11 +159,11 @@ async function createPanel(panelData) {
   // Fixed placement / Fixed size / As a plane panel (MUI Switch = input[type=checkbox])
   if (dialog) {
     const checkboxes = [...dialog.querySelectorAll("input[type='checkbox']")]
-      .filter(el => el.getBoundingClientRect().width >= 0);
-    // 순서: Fixed placement (0번), Fixed size (1번), As a plane panel (2번)
+      .filter(el => el.getBoundingClientRect().width > 0);
+    // 순서: Fixed placement (0번), Fixed size (1번), As a plane panel (2번, Screen only)
     if (checkboxes[0]) setToggle(checkboxes[0], panelData.fixedPlacement);
     if (checkboxes[1]) setToggle(checkboxes[1], panelData.fixedSize);
-    // As a plane panel은 panelData에 필드가 없으니 기본값 false 유지
+    if (checkboxes[2] && isScreen) setToggle(checkboxes[2], panelData.asPlanePanel ?? false);
   }
 
   // STEP 6: Advanced settings & click-action

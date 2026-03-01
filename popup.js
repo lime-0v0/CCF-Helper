@@ -35,49 +35,6 @@ const screenClickActionGroup = document.getElementById("screenClickActionGroup")
 const screenCopyBtn = document.getElementById("screenCopyBtn");
 const screenGenerator = document.getElementById("screenGenerator");
 
-// 생성기 토글 함수
-function toggleGeneratorMarker(e) {
-  console.log("[DEBUG] toggleGeneratorMarker called");
-  e.preventDefault();
-  const generator = document.getElementById("markerGenerator");
-  const header = e.currentTarget;
-  
-  console.log("Generator element:", generator);
-  console.log("Header element:", header);
-  console.log("Current collapsed state:", generator.classList.contains("collapsed"));
-  
-  generator.classList.toggle("collapsed");
-  
-  console.log("New collapsed state:", generator.classList.contains("collapsed"));
-  
-  if (generator.classList.contains("collapsed")) {
-    header.querySelector("span").textContent = "▶ 생성기 펼치기";
-  } else {
-    header.querySelector("span").textContent = "▼ 생성기 접기";
-  }
-}
-
-function toggleGeneratorScreen(e) {
-  console.log("[DEBUG] toggleGeneratorScreen called");
-  e.preventDefault();
-  const generator = document.getElementById("screenGenerator");
-  const header = e.currentTarget;
-  
-  console.log("Generator element:", generator);
-  console.log("Header element:", header);
-  console.log("Current collapsed state:", generator.classList.contains("collapsed"));
-  
-  generator.classList.toggle("collapsed");
-  
-  console.log("New collapsed state:", generator.classList.contains("collapsed"));
-  
-  if (generator.classList.contains("collapsed")) {
-    header.querySelector("span").textContent = "▶ 생성기 펼치기";
-  } else {
-    header.querySelector("span").textContent = "▼ 생성기 접기";
-  }
-}
-
 // 저장된 설정 불러오기
 if (chrome?.storage?.sync) {
   chrome.storage.sync.get({ autoSaveMarker: true, autoSaveScreen: true }, (data) => {
@@ -217,7 +174,6 @@ const screenHeader = document.getElementById("screenGeneratorHeader");
 if (markerHeader) {
   markerHeader.style.cursor = "pointer";
   markerHeader.addEventListener("click", () => {
-    console.log("[DEBUG] markerHeader clicked");
     const gen = document.getElementById("markerGenerator");
     gen.classList.toggle("collapsed");
     const isCollapsed = gen.classList.contains("collapsed");
@@ -228,7 +184,6 @@ if (markerHeader) {
 if (screenHeader) {
   screenHeader.style.cursor = "pointer";
   screenHeader.addEventListener("click", () => {
-    console.log("[DEBUG] screenHeader clicked");
     const gen = document.getElementById("screenGenerator");
     gen.classList.toggle("collapsed");
     const isCollapsed = gen.classList.contains("collapsed");
@@ -294,6 +249,15 @@ function genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 }
 
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
 // ── 트리 렌더링 ───────────────────────────
 async function renderFavTree() {
   const { folders, bookmarks } = await getFavData();
@@ -317,34 +281,34 @@ async function renderFavTree() {
     folderEl.innerHTML = `
       <div class="fav-folder-header">
         <span class="fav-folder-arrow">▶</span>
-        <span class="fav-folder-name">📁 ${folder.name}</span>
+        <span class="fav-folder-name">📁 ${escapeHtml(folder.name)}</span>
         <div class="fav-folder-actions">
-          <button class="fav-run-all-btn" data-folder-id="${folder.id}" title="폴더 전체 실행" ${folderItems.length === 0 ? "disabled" : ""}>▶▶ 전체</button>
-          <button class="io-btn fav-export-folder-btn" data-folder-id="${folder.id}" title="폴더 내보내기">⬆</button>
-          ${!isDefault ? `<button class="del-folder-btn" data-id="${folder.id}" title="삭제">🗑</button>` : ""}
+          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 실행" ${folderItems.length === 0 ? "disabled" : ""}>▶▶ 전체</button>
+          <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 내보내기">⬆</button>
+          ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">🗑</button>` : ""}
         </div>
       </div>
       <div class="fav-items">
         ${folderItems.length === 0 ? '<div class="fav-empty">항목 없음</div>' : ""}
         ${folderItems.map((b) => `
-          <div class="fav-item" data-id="${b.id}" draggable="true">
+          <div class="fav-item" data-id="${escapeHtml(b.id)}" draggable="true">
             <span class="fav-item-type ${b.data?.type === "screen" ? "scr" : "mrk"}">${b.data?.type === "screen" ? "SCR" : "MRK"}</span>
-            <span class="fav-item-name" title="${b.name}">${b.name}</span>
+            <span class="fav-item-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
-              <button class="fav-run-btn" data-json='${JSON.stringify(b.data)}' title="ccfolia에 생성">▶</button>
-              <button class="fav-copy-btn" data-json='${JSON.stringify(b.data)}' title="복사">📋</button>
-              <button class="fav-edit-btn-trigger" data-id="${b.id}" title="편집">✏️</button>
-              <button class="del-bookmark-btn" data-id="${b.id}" title="삭제">🗑</button>
+              <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
+              <button class="fav-copy-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="복사">📋</button>
+              <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✏️</button>
+              <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">🗑</button>
             </div>
           </div>
-          <div class="fav-edit-form" id="edit-form-${b.id}">
+          <div class="fav-edit-form" id="edit-form-${escapeHtml(b.id)}">
             <div class="fav-edit-label">이름</div>
-            <input class="edit-name-input" value="${b.name}">
+            <input class="edit-name-input" value="${escapeHtml(b.name)}">
             <div class="fav-edit-label">JSON 데이터</div>
-            <textarea class="edit-json-input">${JSON.stringify(b.data, null, 2)}</textarea>
+            <textarea class="edit-json-input">${escapeHtml(JSON.stringify(b.data, null, 2))}</textarea>
             <div class="fav-edit-btns">
               <button class="fav-edit-btn cancel-edit-btn">취소</button>
-              <button class="fav-edit-btn primary save-edit-btn" data-id="${b.id}">저장</button>
+              <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
             </div>
           </div>
         `).join("")}
@@ -475,7 +439,6 @@ async function renderFavTree() {
         .forEach(el => el.classList.remove("folder-drag-over-top", "folder-drag-over-bottom"));
     });
     folderEl.addEventListener("dragover", (e) => {
-      const draggingFolderId = e.dataTransfer.types.includes("folderid") || e.dataTransfer.getData("folderId");
       // 항목 드래그 중이면 폴더 드롭 처리 (기존 로직)
       if (e.dataTransfer.types.includes("bookmarkid")) return;
       e.preventDefault();
