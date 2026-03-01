@@ -273,8 +273,8 @@
     border: 1px solid #333;
     border-radius: 4px;
     color: #aaa;
-    font-size: 11px;
-    padding: 3px 7px;
+    font-size: 13px;
+    padding: 3px 8px;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
   }
@@ -302,7 +302,7 @@
     font-weight: 600;
     color: #ccc;
   }
-  .fav-folder-arrow { font-size: 9px; color: #555; transition: transform 0.15s; }
+  .fav-folder-arrow { font-size: 11px; color: #555; transition: transform 0.15s; }
   .fav-folder.open .fav-folder-arrow { transform: rotate(90deg); }
   .fav-folder-actions { display: flex; gap: 4px; }
   .fav-folder-actions button {
@@ -310,7 +310,7 @@
     border: none;
     color: #555;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 13px;
     padding: 0 2px;
     line-height: 1;
   }
@@ -341,7 +341,7 @@
     text-overflow: ellipsis;
   }
   .fav-item-type {
-    font-size: 9px;
+    font-size: 10px;
     font-weight: 700;
     border-radius: 3px;
     padding: 1px 5px;
@@ -362,7 +362,7 @@
     border: none;
     color: #555;
     cursor: pointer;
-    font-size: 11px;
+    font-size: 14px;
     padding: 0 2px;
   }
   .fav-item-actions button:hover { color: #ef5350; }
@@ -433,14 +433,14 @@
     border: none;
     color: #00c853;
     cursor: pointer;
-    font-size: 13px;
+    font-size: 15px;
     padding: 0 2px;
     line-height: 1;
     transition: color 0.15s;
   }
   .fav-run-btn:hover { color: #00e676; }
   .fav-run-all-btn {
-    font-size: 10px;
+    font-size: 11px;
     background: none;
     border: 1px solid #1a5a2a;
     border-radius: 3px;
@@ -487,6 +487,38 @@
   .fav-edit-btn.primary { background: #00c853; border-color: #00c853; color: #000; font-weight: 700; }
   .fav-edit-btn:hover { background: #333; }
   .fav-edit-btn.primary:hover { background: #00e676; }
+  /* 3열 그리드 (width / height / priority) */
+  .fav-edit-row3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 5px;
+  }
+  /* 토글 행 */
+  .fav-edit-toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 2px 0;
+  }
+  .fav-edit-form input[type="number"],
+  .fav-edit-form select {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 11px;
+    padding: 4px 6px;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .fav-edit-form input[type="checkbox"] {
+    width: 15px;
+    height: 15px;
+    accent-color: #00c853;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
 
 
   /* ── 내보내기/불러오기 ── */

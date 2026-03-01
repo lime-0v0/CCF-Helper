@@ -296,7 +296,11 @@ async function renderFavTree() {
       </div>
       <div class="fav-items">
         ${folderItems.length === 0 ? '<div class="fav-empty">항목 없음</div>' : ""}
-        ${folderItems.map((b) => `
+        ${folderItems.map((b) => {
+          const d = b.data || {};
+          const ca = d.clickAction || "none";
+          const caText = d.clickActionText || "";
+          return `
           <div class="fav-item" data-id="${escapeHtml(b.id)}" draggable="true">
             <span class="fav-item-type ${b.data?.type === "screen" ? "scr" : "mrk"}">${b.data?.type === "screen" ? "SCR" : "MRK"}</span>
             <span class="fav-item-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
@@ -310,14 +314,53 @@ async function renderFavTree() {
           <div class="fav-edit-form" id="edit-form-${escapeHtml(b.id)}">
             <div class="fav-edit-label">이름</div>
             <input class="edit-name-input" value="${escapeHtml(b.name)}">
-            <div class="fav-edit-label">JSON 데이터</div>
-            <textarea class="edit-json-input">${escapeHtml(JSON.stringify(b.data, null, 2))}</textarea>
+            <div class="fav-edit-row3">
+              <div>
+                <div class="fav-edit-label">WIDTH</div>
+                <input class="edit-width-input" type="number" min="1" value="${d.width ?? 2}">
+              </div>
+              <div>
+                <div class="fav-edit-label">HEIGHT</div>
+                <input class="edit-height-input" type="number" min="1" value="${d.height ?? 2}">
+              </div>
+              <div>
+                <div class="fav-edit-label">PRIORITY</div>
+                <input class="edit-priority-input" type="number" min="1" value="${d.overlapPriority ?? 1}">
+              </div>
+            </div>
+            <div class="fav-edit-label">MEMO (패널 이름)</div>
+            <textarea class="edit-memo-input">${escapeHtml(d.memo ?? "")}</textarea>
+            <div class="fav-edit-label">IMAGE URL (선택)</div>
+            <input class="edit-imageurl-input" type="text" placeholder="https://..." value="${escapeHtml(d.imageUrl ?? "")}">
+            <div class="fav-edit-toggle-row">
+              <span class="fav-edit-label">Fixed Placement (위치 고정)</span>
+              <input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}>
+            </div>
+            <div class="fav-edit-toggle-row">
+              <span class="fav-edit-label">Fixed Size (크기 고정)</span>
+              <input class="edit-fixed-size" type="checkbox" ${d.fixedSize ? "checked" : ""}>
+            </div>
+            ${d.type === "screen" ? `
+            <div class="fav-edit-toggle-row">
+              <span class="fav-edit-label">Plane Panel</span>
+              <input class="edit-plane-panel" type="checkbox" ${d.asPlanePanel ? "checked" : ""}>
+            </div>` : ""}
+            <div class="fav-edit-label">CLICK ACTION</div>
+            <select class="edit-click-action">
+              <option value="none"${ca === "none" ? " selected" : ""}>None</option>
+              <option value="sendToChat"${ca === "sendToChat" ? " selected" : ""}>Send to chat</option>
+            </select>
+            <div class="edit-ca-text-group"${ca !== "sendToChat" ? ' style="display:none"' : ""}>
+              <div class="fav-edit-label">CLICK ACTION TEXT</div>
+              <textarea class="edit-click-action-text">${escapeHtml(caText)}</textarea>
+            </div>
             <div class="fav-edit-btns">
               <button class="fav-edit-btn cancel-edit-btn">취소</button>
               <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
             </div>
           </div>
-        `).join("")}
+          `;
+        }).join("")}
       </div>
     `;
 
@@ -384,16 +427,44 @@ async function renderFavTree() {
         e.stopPropagation();
         const form = btn.closest(".fav-edit-form");
         const newName = form.querySelector(".edit-name-input").value.trim();
-        const jsonRaw = form.querySelector(".edit-json-input").value.trim();
         if (!newName) { alert("이름을 입력해주세요."); return; }
-        let newData;
-        try { newData = JSON.parse(jsonRaw); } catch { alert("JSON 형식이 올바르지 않습니다."); return; }
-        if (!newData.memo) { alert("memo 필드가 필요합니다."); return; }
+        const memo = form.querySelector(".edit-memo-input").value.trim();
+        if (!memo) { alert("MEMO 필드를 입력해주세요."); return; }
         const d = await getFavData();
         const bm = d.bookmarks.find(b => b.id === btn.dataset.id);
-        if (bm) { bm.name = newName; bm.data = newData; }
+        if (!bm) return;
+        bm.name = newName;
+        const data = { ...(bm.data || {}) };
+        data.memo   = memo;
+        data.width  = parseInt(form.querySelector(".edit-width-input").value)    || 2;
+        data.height = parseInt(form.querySelector(".edit-height-input").value)   || 2;
+        data.overlapPriority = parseInt(form.querySelector(".edit-priority-input").value) || 1;
+        const imageUrl = form.querySelector(".edit-imageurl-input").value.trim();
+        if (imageUrl) data.imageUrl = imageUrl; else delete data.imageUrl;
+        data.fixedPlacement = form.querySelector(".edit-fixed-placement")?.checked ?? false;
+        data.fixedSize      = form.querySelector(".edit-fixed-size")?.checked      ?? false;
+        if (data.type === "screen") {
+          data.asPlanePanel = form.querySelector(".edit-plane-panel")?.checked ?? false;
+        }
+        const clickAction = form.querySelector(".edit-click-action").value;
+        if (clickAction !== "none") {
+          data.clickAction     = clickAction;
+          data.clickActionText = form.querySelector(".edit-click-action-text")?.value || "";
+        } else {
+          data.clickAction = "none";
+          delete data.clickActionText;
+        }
+        bm.data = data;
         await saveFavData(d);
         renderFavTree();
+      });
+    });
+
+    // Click Action select → text 필드 토글
+    folderEl.querySelectorAll(".edit-click-action").forEach((sel) => {
+      sel.addEventListener("change", () => {
+        const group = sel.closest(".fav-edit-form").querySelector(".edit-ca-text-group");
+        if (group) group.style.display = sel.value === "sendToChat" ? "" : "none";
       });
     });
 
