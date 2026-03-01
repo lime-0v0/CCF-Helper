@@ -148,19 +148,32 @@
   function _extractFromDom(el) {
     let text = "";
     let movableEl = null;
+    let isScreen = false;
 
-    // ─── 1차: data-dragging 컨테이너 (스크린 패널)
+    // non-empty aria-label을 가진 첫 요소의 값 반환
+    function _firstLabel(root) {
+      for (const c of root.querySelectorAll("[aria-label]")) {
+        const v = c.getAttribute("aria-label") || "";
+        if (v) return v;
+      }
+      return "";
+    }
+
+    // ─── 1차: data-dragging 컨테이너 → 스크린 패널
     let panelEl = el;
     for (let i = 0; i < 12 && panelEl && panelEl !== document.documentElement; i++) {
       if (panelEl.dataset && panelEl.dataset.dragging !== undefined) break;
       panelEl = panelEl.parentElement;
     }
     if (panelEl && panelEl.dataset?.dragging !== undefined) {
+      isScreen = true;
       text = panelEl.getAttribute("aria-label") || "";
       movableEl = panelEl.closest?.(".movable");
+      // 뒷면 등에서 aria-label이 비어있으면 .movable 내 non-empty 값 탐색
+      if (!text && movableEl) text = _firstLabel(movableEl);
     }
 
-    // ─── 2차: .movable + 자식 [aria-label] (마커 패널 — data-dragging 없음)
+    // ─── 2차: .movable + 자식 [aria-label] → 마커 패널 (data-dragging 없음)
     if (!text) {
       let node = el;
       for (let i = 0; i < 12 && node && node !== document.documentElement; i++) {
@@ -169,18 +182,18 @@
       }
       if (node?.classList?.contains("movable")) {
         movableEl = node;
-        // draggable 버튼 안의 첫 번째 의미있는 aria-label 탐색
         const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
         const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
         text = labelEl?.getAttribute("aria-label") || "";
+        if (!text) text = _firstLabel(movableEl);
       }
     }
 
     if (!text || !movableEl) return null;
 
     // imageUrl: 패널 안의 img 태그
-    const img = movableEl.querySelector("img");
-    const imageUrl = img?.src || undefined;
+    const imgs = movableEl.querySelectorAll("img");
+    const imageUrl = imgs[0]?.src || undefined;
 
     // width / height / z: .movable 인라인 style
     const width  = parseFloat(movableEl.style.width)  || 0;
@@ -189,15 +202,16 @@
 
     const PX_PER_GRID = 24;
     const result = {
-      type: imageUrl ? "card" : "marker",
+      type: isScreen ? "screen" : "marker",
       memo: text,
-      width:           width  ? Math.round(width  / PX_PER_GRID) : 2,
-      height:          height ? Math.round(height / PX_PER_GRID) : 2,
+      width:           width  ? Math.round(width  / PX_PER_GRID) : (isScreen ? 4 : 2),
+      height:          height ? Math.round(height / PX_PER_GRID) : (isScreen ? 4 : 2),
       overlapPriority: z,
       fixedPlacement:  false,
       fixedSize:       false,
       clickAction:     "none",
     };
+    if (isScreen) result.asPlanePanel = false;
     if (imageUrl) result.imageUrl = imageUrl;
 
     console.log("[CCFHelper:ctx] DOM extraction success:", result);
@@ -294,7 +308,8 @@
       clickActionText: "",
     };
     if (type === "screen") d.asPlanePanel = Boolean(props.asPlanePanel ?? false);
-    if (props.imageUrl) d.imageUrl = props.imageUrl;
+    if (props.imageUrl)      d.imageUrl      = props.imageUrl;
+    if (props.coverImageUrl) d.coverImageUrl = props.coverImageUrl;
     // clickAction 파싱
     const ca = props.clickAction;
     if (ca && typeof ca === "object" && ca.type === "message") {
@@ -418,8 +433,8 @@
       ownerColor:    { nullValue: "NULL_VALUE" },
       ownerName:     { nullValue: "NULL_VALUE" },
       memo:          { stringValue: d.memo },
-      imageUrl:      d.imageUrl ? { stringValue: d.imageUrl } : { nullValue: "NULL_VALUE" },
-      coverImageUrl: { nullValue: "NULL_VALUE" },
+      imageUrl:      d.imageUrl      ? { stringValue: d.imageUrl }      : { nullValue: "NULL_VALUE" },
+      coverImageUrl: d.coverImageUrl ? { stringValue: d.coverImageUrl } : { nullValue: "NULL_VALUE" },
       clickAction:   d.clickAction === "sendToChat"
         ? { mapValue: { fields: {
             type: { stringValue: "message" },

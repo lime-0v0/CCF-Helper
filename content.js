@@ -54,6 +54,7 @@ function parseJson(raw) {
     overlapPriority: data.overlapPriority ?? 1,
     memo:            String(data.memo),
     imageUrl:        data.imageUrl        ?? null,
+    coverImageUrl:   data.coverImageUrl   ?? null,
     fixedPlacement:  data.fixedPlacement  ?? false,
     fixedSize:       data.fixedSize       ?? false,
     asPlanePanel:    data.asPlanePanel    ?? false,

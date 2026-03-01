@@ -98,6 +98,9 @@ screenCopyBtn.addEventListener("click", () => {
   const screenImageUrl = document.getElementById("screenImageUrl")?.value.trim();
   if (screenImageUrl) json.imageUrl = screenImageUrl;
 
+  const screenCoverImageUrl = document.getElementById("screenCoverImageUrl")?.value.trim();
+  if (screenCoverImageUrl) json.coverImageUrl = screenCoverImageUrl;
+
   const jsonStr = JSON.stringify(json);
   navigator.clipboard.writeText(jsonStr).then(() => {
     screenCopyBtn.textContent = "✓ 복사됨!";
@@ -714,6 +717,8 @@ function buildScreenJson() {
   if (ca && ca !== "none") { json.clickAction = ca; json.clickActionText = document.getElementById("screenClickActionText")?.value || ""; }
   const imageUrl = document.getElementById("screenImageUrl")?.value.trim();
   if (imageUrl) json.imageUrl = imageUrl;
+  const coverImageUrl = document.getElementById("screenCoverImageUrl")?.value.trim();
+  if (coverImageUrl) json.coverImageUrl = coverImageUrl;
   return json;
 }
 
