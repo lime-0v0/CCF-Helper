@@ -158,8 +158,8 @@ if (screenHeader) {
 
 // ── 기본값 로드 · 저장 · 생성기 반영 ──────────────────────────────────
 const SYS = {
-  marker: { width: 2, height: 2, priority: 1, imageUrl: "" },
-  screen: { width: 4, height: 4, priority: 1, imageUrl: "" },
+  marker: { width: 2, height: 2, priority: 1, imageUrl: "", fixedPlacement: false, fixedSize: false },
+  screen: { width: 4, height: 4, priority: 1, imageUrl: "", fixedPlacement: false, fixedSize: false, asPlanePanel: false },
 };
 
 function applyGeneratorDefaults(type, saved) {
@@ -168,34 +168,42 @@ function applyGeneratorDefaults(type, saved) {
   const h   = (saved?.height   > 0) ? saved.height   : sys.height;
   const pr  = (saved?.priority > 0) ? saved.priority : sys.priority;
   const img = saved?.imageUrl ?? "";
+  const fp  = saved?.fixedPlacement ?? false;
+  const fs  = saved?.fixedSize      ?? false;
+  const ap  = saved?.asPlanePanel   ?? false;
 
   // 기본값 입력 필드
-  const dw  = document.getElementById(`${type}DefaultWidth`);
-  const dh  = document.getElementById(`${type}DefaultHeight`);
-  const dpr = document.getElementById(`${type}DefaultPriority`);
-  const di  = document.getElementById(`${type}DefaultImageUrl`);
-  if (dw)  dw.value  = (saved?.width    > 0) ? saved.width    : "";
-  if (dh)  dh.value  = (saved?.height   > 0) ? saved.height   : "";
-  if (dpr) dpr.value = (saved?.priority > 0) ? saved.priority : "";
-  if (di)  di.value  = img;
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+  set(`${type}DefaultWidth`,    (saved?.width    > 0) ? saved.width    : "");
+  set(`${type}DefaultHeight`,   (saved?.height   > 0) ? saved.height   : "");
+  set(`${type}DefaultPriority`, (saved?.priority > 0) ? saved.priority : "");
+  set(`${type}DefaultImageUrl`, img);
+  setChk(`${type}DefaultFixedPlacement`, fp);
+  setChk(`${type}DefaultFixedSize`,      fs);
+  if (type === "screen") setChk("screenDefaultAsPlanePanel", ap);
 
   // 생성기 초기값
-  const gw  = document.getElementById(`${type}Width`);
-  const gh  = document.getElementById(`${type}Height`);
-  const gpr = document.getElementById(`${type}Priority`);
-  const gi  = document.getElementById(`${type}ImageUrl`);
-  if (gw)  gw.value  = w;
-  if (gh)  gh.value  = h;
-  if (gpr) gpr.value = pr;
-  if (gi)  gi.value  = img;
+  set(`${type}Width`,    w);
+  set(`${type}Height`,   h);
+  set(`${type}Priority`, pr);
+  set(`${type}ImageUrl`, img);
+  setChk(`${type}FixedPlacement`, fp);
+  setChk(`${type}FixedSize`,      fs);
+  if (type === "screen") setChk("screenAsPlanePanel", ap);
 }
 
 function saveAndApplyDefaults(type) {
-  const w   = parseInt(document.getElementById(`${type}DefaultWidth`)?.value)    || 0;
-  const h   = parseInt(document.getElementById(`${type}DefaultHeight`)?.value)   || 0;
-  const pr  = parseInt(document.getElementById(`${type}DefaultPriority`)?.value) || 0;
-  const img = document.getElementById(`${type}DefaultImageUrl`)?.value ?? "";
-  const saved = { width: w, height: h, priority: pr, imageUrl: img };
+  const get    = (id) => document.getElementById(id);
+  const w   = parseInt(get(`${type}DefaultWidth`)?.value)    || 0;
+  const h   = parseInt(get(`${type}DefaultHeight`)?.value)   || 0;
+  const pr  = parseInt(get(`${type}DefaultPriority`)?.value) || 0;
+  const img = get(`${type}DefaultImageUrl`)?.value ?? "";
+  const fp  = get(`${type}DefaultFixedPlacement`)?.checked ?? false;
+  const fs  = get(`${type}DefaultFixedSize`)?.checked      ?? false;
+  const ap  = get("screenDefaultAsPlanePanel")?.checked    ?? false;
+  const saved = { width: w, height: h, priority: pr, imageUrl: img, fixedPlacement: fp, fixedSize: fs,
+                  ...(type === "screen" ? { asPlanePanel: ap } : {}) };
   chrome.storage.local.set({ [`${type}Defaults`]: saved });
   applyGeneratorDefaults(type, saved);
 }
@@ -207,10 +215,11 @@ chrome.storage.local.get(["markerDefaults", "screenDefaults"], (data) => {
 });
 
 // 기본값 변경 시 즉시 저장
-["Width", "Height", "Priority", "ImageUrl"].forEach(field => {
+["Width", "Height", "Priority", "ImageUrl", "FixedPlacement", "FixedSize"].forEach(field => {
   document.getElementById(`markerDefault${field}`)?.addEventListener("change", () => saveAndApplyDefaults("marker"));
   document.getElementById(`screenDefault${field}`)?.addEventListener("change", () => saveAndApplyDefaults("screen"));
 });
+document.getElementById("screenDefaultAsPlanePanel")?.addEventListener("change", () => saveAndApplyDefaults("screen"));
 
 // =============================================
 // 즐겨찾기 (Favorites) 기능
