@@ -146,48 +146,57 @@
 
   /** DOM 속성 직접 추출 (ccfolia가 aria-label / style에 데이터를 노출함) */
   function _extractFromDom(el) {
-    // [data-dragging] 속성을 가진 패널 컨테이너를 찾는다
+    let text = "";
+    let movableEl = null;
+
+    // ─── 1차: data-dragging 컨테이너 (스크린 패널)
     let panelEl = el;
     for (let i = 0; i < 12 && panelEl && panelEl !== document.documentElement; i++) {
       if (panelEl.dataset && panelEl.dataset.dragging !== undefined) break;
       panelEl = panelEl.parentElement;
     }
-    if (!panelEl || panelEl.dataset?.dragging === undefined) return null;
-
-    const text = panelEl.getAttribute("aria-label") || "";
-    if (!text) return null;
-
-    // imageUrl: 패널 안의 img 태그
-    const img = panelEl.querySelector("img");
-    const imageUrl = img?.src || undefined;
-
-    // width / height: .movable 조상의 인라인 style (언스케일 실제 px값)
-    // ※ 중간 부모들에 "width:100%" 같은 퍼센트 값이 있으므로 .movable만 읽어야 함
-    let width = 0, height = 0;
-    const movableEl = panelEl.closest?.(".movable");
-    if (movableEl?.style?.width) {
-      width  = parseFloat(movableEl.style.width)  || 0;
-      height = parseFloat(movableEl.style.height) || 0;
+    if (panelEl && panelEl.dataset?.dragging !== undefined) {
+      text = panelEl.getAttribute("aria-label") || "";
+      movableEl = panelEl.closest?.(".movable");
     }
 
-    // z-index: .movable 조상 (ccfolia 공통 클래스)
-    let z = 1;
-    if (movableEl?.style?.zIndex) z = parseInt(movableEl.style.zIndex) || 1;
+    // ─── 2차: .movable + 자식 [aria-label] (마커 패널 — data-dragging 없음)
+    if (!text) {
+      let node = el;
+      for (let i = 0; i < 12 && node && node !== document.documentElement; i++) {
+        if (node.classList?.contains("movable")) break;
+        node = node.parentElement;
+      }
+      if (node?.classList?.contains("movable")) {
+        movableEl = node;
+        // draggable 버튼 안의 첫 번째 의미있는 aria-label 탐색
+        const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
+        const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
+        text = labelEl?.getAttribute("aria-label") || "";
+      }
+    }
 
-    // 단위 변환: ccfolia 내부 1그리드 = 24px (실측: 288px→12칸, 240px→10칸)
+    if (!text || !movableEl) return null;
+
+    // imageUrl: 패널 안의 img 태그
+    const img = movableEl.querySelector("img");
+    const imageUrl = img?.src || undefined;
+
+    // width / height / z: .movable 인라인 style
+    const width  = parseFloat(movableEl.style.width)  || 0;
+    const height = parseFloat(movableEl.style.height) || 0;
+    const z      = parseInt(movableEl.style.zIndex)   || 1;
+
     const PX_PER_GRID = 24;
-    const gridW = width  ? Math.round(width  / PX_PER_GRID) : 2;
-    const gridH = height ? Math.round(height / PX_PER_GRID) : 2;
-
     const result = {
       type: imageUrl ? "card" : "marker",
       memo: text,
-      width:  gridW,
-      height: gridH,
+      width:           width  ? Math.round(width  / PX_PER_GRID) : 2,
+      height:          height ? Math.round(height / PX_PER_GRID) : 2,
       overlapPriority: z,
-      fixedPlacement: false,
-      fixedSize: false,
-      clickAction: "none",
+      fixedPlacement:  false,
+      fixedSize:       false,
+      clickAction:     "none",
     };
     if (imageUrl) result.imageUrl = imageUrl;
 
