@@ -2,13 +2,7 @@
 // Ccfolia Helper - content.js
 // =============================================
 
-// ── inject.js를 페이지 컨텍스트에 주입 (Firebase 토큰 캡처용) ────────
-(function injectPageScript() {
-  const s = document.createElement("script");
-  s.src = chrome.runtime.getURL("inject.js");
-  s.onload = () => s.remove();
-  (document.head ?? document.documentElement).appendChild(s);
-})();
+// inject.js는 manifest에서 world:"MAIN", run_at:"document_start"로 직접 주입됨
 
 // ── URL에서 roomId 추출 ───────────────────────────────────────────────
 function getRoomId() {

@@ -1,25 +1,14 @@
 // =============================================
 // CcfoliaHelper - inject.js
-// 페이지 컨텍스트에서 실행: Firebase 인증 토큰 캡처 + Firestore REST API 직접 쓰기
+// world: "MAIN", run_at: "document_start"
+// Firebase보다 먼저 실행 → 토큰 캡처 + Firestore REST API 쓰기
 // =============================================
 (function () {
   "use strict";
 
   let authToken = null;
 
-  // ── 1. Firebase v8 (compat) 전역에서 직접 토큰 취득 ──────────────────
-  function tryFirebaseV8() {
-    try {
-      const user = window.firebase?.auth?.()?.currentUser;
-      if (user?.getIdToken) {
-        user.getIdToken().then((t) => { authToken = t; }).catch(() => {});
-        return true;
-      }
-    } catch (_) {}
-    return false;
-  }
-
-  // ── 2. localStorage에서 Firebase 인증 토큰 취득 (v8 fallback) ─────────
+  // ── 1. localStorage에서 Firebase 토큰 취득 (v8) ───────────────────────
   function tryLocalStorage() {
     try {
       for (let i = 0; i < localStorage.length; i++) {
@@ -33,7 +22,39 @@
     return false;
   }
 
-  // ── 3. fetch 가로채기: Authorization 헤더 및 토큰 갱신 응답 캡처 ──────
+  // ── 2. IndexedDB에서 Firebase 토큰 취득 (v9) ─────────────────────────
+  function tryIndexedDB() {
+    try {
+      const req = indexedDB.open("firebaseLocalStorageDb");
+      req.onsuccess = (e) => {
+        try {
+          const db = e.target.result;
+          if (!db.objectStoreNames.contains("firebaseLocalStorage")) return;
+          const store = db.transaction("firebaseLocalStorage", "readonly").objectStore("firebaseLocalStorage");
+          store.getAll().onsuccess = (ev) => {
+            for (const item of ev.target.result ?? []) {
+              const token = item?.value?.stsTokenManager?.accessToken;
+              if (token) { authToken = token; return; }
+            }
+          };
+        } catch (_) {}
+      };
+    } catch (_) {}
+  }
+
+  // ── 3. Firebase v8 전역 (window.firebase) ───────────────────────────
+  function tryFirebaseV8() {
+    try {
+      const user = window.firebase?.auth?.()?.currentUser;
+      if (user?.getIdToken) {
+        user.getIdToken().then((t) => { authToken = t; }).catch(() => {});
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  // ── 4. fetch 인터셉터 (document_start → Firebase보다 먼저 설치됨) ──────
   const _fetch = window.fetch;
   window.fetch = async function (input, init) {
     const url = typeof input === "string" ? input : (input?.url ?? "");
@@ -51,7 +72,7 @@
 
     const resp = await _fetch.apply(this, arguments);
 
-    // securetoken.googleapis.com 토큰 갱신 응답에서 ID 토큰 캡처
+    // securetoken.googleapis.com 갱신 응답에서 ID 토큰 캡처
     if (url.includes("securetoken.googleapis.com")) {
       try {
         resp.clone().json().then((d) => {
@@ -64,7 +85,7 @@
     return resp;
   };
 
-  // ── 4. XHR 가로채기 (Firebase BrowserChannel은 XHR 사용) ─────────────
+  // ── 5. XHR 인터셉터 (Firebase BrowserChannel은 XHR 사용) ─────────────
   const _xhrOpen = XMLHttpRequest.prototype.open;
   const _xhrSetHeader = XMLHttpRequest.prototype.setRequestHeader;
 
@@ -84,10 +105,12 @@
     return _xhrSetHeader.apply(this, arguments);
   };
 
-  // 초기 토큰 취득 시도
-  if (!tryFirebaseV8()) tryLocalStorage();
+  // 초기 토큰 취득 시도 (페이지 로드 시 이미 인증 상태인 경우)
+  tryLocalStorage();
+  tryIndexedDB();
   // Firebase 앱 초기화 완료 후 재시도
-  setTimeout(() => { if (!authToken) { if (!tryFirebaseV8()) tryLocalStorage(); } }, 2000);
+  setTimeout(() => { if (!authToken) tryFirebaseV8(); }, 1000);
+  setTimeout(() => { if (!authToken) { tryFirebaseV8(); tryLocalStorage(); } }, 3000);
 
   // ── 메시지 수신: content script → inject.js ──────────────────────────
   window.addEventListener("message", async (event) => {
@@ -157,7 +180,6 @@
       updatedAt:     { integerValue: String(now) },
     };
 
-    // Screen 전용 필드
     if (d.type === "screen" && d.asPlanePanel) {
       fields.asPlanePanel = { booleanValue: true };
     }

@@ -17,6 +17,16 @@
         "https://ccfolia.com/rooms/*"
       ],
       "js": [
+        "inject.js"
+      ],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": [
+        "https://ccfolia.com/rooms/*"
+      ],
+      "js": [
         "content.js"
       ],
       "run_at": "document_idle"
@@ -25,11 +35,5 @@
   "action": {
     "default_popup": "popup.html",
     "default_title": "Ccfolia Helper"
-  },
-  "web_accessible_resources": [
-    {
-      "resources": ["inject.js"],
-      "matches": ["<all_urls>"]
-    }
-  ]
+  }
 }
