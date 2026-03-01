@@ -127,6 +127,11 @@
   }, true);
 
   function _extractPanelFromEl(el) {
+    // ── 1차: DOM 속성에서 직접 읽기 ─────────────────────────────────────
+    const domResult = _extractFromDom(el);
+    if (domResult) return domResult;
+
+    // ── 2차: React fiber fallback (기존 코드) ───────────────────────────
     let node = el;
     let domDepth = 0;
     while (node && node !== document.documentElement) {
@@ -137,6 +142,61 @@
     }
     console.warn("[CCFHelper:ctx] DOM depth exhausted at", domDepth, "levels — no panel found");
     return null;
+  }
+
+  /** DOM 속성 직접 추출 (ccfolia가 aria-label / style에 데이터를 노출함) */
+  function _extractFromDom(el) {
+    // [data-dragging] 속성을 가진 패널 컨테이너를 찾는다
+    let panelEl = el;
+    for (let i = 0; i < 12 && panelEl && panelEl !== document.documentElement; i++) {
+      if (panelEl.dataset && panelEl.dataset.dragging !== undefined) break;
+      panelEl = panelEl.parentElement;
+    }
+    if (!panelEl || panelEl.dataset?.dragging === undefined) return null;
+
+    const text = panelEl.getAttribute("aria-label") || "";
+    if (!text) return null;
+
+    // imageUrl: 패널 안의 img 태그
+    const img = panelEl.querySelector("img");
+    const imageUrl = img?.src || undefined;
+
+    // width / height: [data-dragging] 부모 중 인라인 style에 width가 있는 곳
+    let width = 0, height = 0;
+    let sizeEl = panelEl.parentElement;
+    for (let i = 0; i < 6 && sizeEl && sizeEl !== document.documentElement; i++) {
+      if (sizeEl.style?.width) {
+        width  = parseFloat(sizeEl.style.width)  || 0;
+        height = parseFloat(sizeEl.style.height) || 0;
+        break;
+      }
+      sizeEl = sizeEl.parentElement;
+    }
+
+    // z-index: .movable 조상 (ccfolia 공통 클래스)
+    let z = 1;
+    const movableEl = panelEl.closest?.(".movable");
+    if (movableEl?.style?.zIndex) z = parseInt(movableEl.style.zIndex) || 1;
+
+    // 단위 변환: ccfolia는 내부적으로 px→그리드(1칸=80px)
+    const PX_PER_GRID = 80;
+    const gridW = width  ? Math.round(width  / PX_PER_GRID) : 2;
+    const gridH = height ? Math.round(height / PX_PER_GRID) : 2;
+
+    const result = {
+      type: imageUrl ? "card" : "marker",
+      memo: text,
+      width:  gridW,
+      height: gridH,
+      overlapPriority: z,
+      fixedPlacement: false,
+      fixedSize: false,
+      clickAction: "none",
+    };
+    if (imageUrl) result.imageUrl = imageUrl;
+
+    console.log("[CCFHelper:ctx] DOM extraction success:", result);
+    return result;
   }
 
   function _tryFiber(el, domDepth) {
