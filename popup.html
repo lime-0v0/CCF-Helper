@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Ccfolia Helper</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    width: 320px;
+    background: #1a1a1a;
+    color: #e0e0e0;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 13px;
+    position: relative;
+  }
+
+  /* ── 헤더 ── */
+  .header {
+    background: #111;
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .header-icon {
+    width: 18px; height: 18px;
+    background: #00c853;
+    border-radius: 4px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 10px; font-weight: 700; color: #000;
+  }
+  .header-title { font-size: 12px; font-weight: 700; color: #fff; letter-spacing: 0.3px; }
+  .header-sub { font-size: 9px; color: #555; margin-left: auto; }
+
+  /* ── 탭 네비 ── */
+  .tabs {
+    display: flex;
+    background: #111;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .tab {
+    flex: 1;
+    padding: 4px 0;
+    text-align: center;
+    font-size: 11px;
+    color: #555;
+    cursor: pointer;
+    border-bottom: 2px solid transparent;
+    transition: color 0.15s, border-color 0.15s;
+    user-select: none;
+  }
+  .tab:hover { color: #aaa; }
+  .tab.active { color: #00c853; border-bottom-color: #00c853; font-weight: 700; }
+  .tab[data-tab="fav"].active { color: #F7E987; border-bottom-color: #F7E987; }
+  .tab.disabled { color: #333; cursor: default; }
+  .tab .badge {
+    display: inline-block;
+    font-size: 9px;
+    background: #2a2a2a;
+    color: #444;
+    border-radius: 3px;
+    padding: 1px 4px;
+    margin-left: 3px;
+    vertical-align: middle;
+  }
+
+  /* ── 탭 콘텐츠 ── */
+  .tab-content { display: none; padding: 6px 8px; }
+  .tab-content.active { display: block; }
+
+  /* ── 섹션 ── */
+  .section-title {
+    font-size: 10px;
+    font-weight: 700;
+    color: #555;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+  }
+
+  /* ── 토글 행 ── */
+  .toggle-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 3px 0;
+    border-bottom: 1px solid #222;
+  }
+  .toggle-row:last-child { border-bottom: none; }
+  .toggle-label { font-size: 12px; color: #ccc; }
+  .toggle-desc { font-size: 10px; color: #555; margin-top: 0px; }
+
+  /* ── 커스텀 토글 ── */
+  .toggle {
+    position: relative;
+    width: 36px; height: 20px;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+  .toggle input { opacity: 0; width: 0; height: 0; }
+  .toggle-track {
+    position: absolute;
+    inset: 0;
+    background: #333;
+    border-radius: 20px;
+    transition: background 0.2s;
+  }
+  .toggle input:checked + .toggle-track { background: #00c853; }
+  .toggle-thumb {
+    position: absolute;
+    top: 3px; left: 3px;
+    width: 14px; height: 14px;
+    background: #fff;
+    border-radius: 50%;
+    transition: left 0.2s;
+    pointer-events: none;
+  }
+  .toggle input:checked ~ .toggle-thumb { left: 19px; }
+
+  /* ── 상태 표시 ── */
+  .status {
+    margin-top: 6px;
+    padding: 6px 8px;
+    background: #222;
+    border-radius: 6px;
+    font-size: 10px;
+    color: #666;
+    border-left: 3px solid #2a2a2a;
+  }
+  .status.saved { color: #00c853; border-left-color: #00c853; }
+  .status.manual { color: #ffa726; border-left-color: #ffa726; }
+
+  /* ── coming soon ── */
+  .coming-soon {
+    padding: 24px 0;
+    text-align: center;
+    color: #333;
+    font-size: 11px;
+  }
+  .coming-soon .icon { font-size: 24px; margin-bottom: 8px; }
+
+  /* ── JSON 생성기 ── */
+  .generator-header {
+    padding: 6px 0;
+    font-size: 10px;
+    font-weight: 600;
+    color: #888;
+    cursor: pointer;
+    user-select: none;
+    transition: color 0.2s;
+  }
+
+  .generator-header:hover {
+    color: #bbb;
+  }
+
+  .json-generator {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .json-generator.collapsed {
+    display: none;
+  }
+
+  .input-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 3px;
+  }
+
+  .input-row .input-group small input {
+    max-width: 70px;
+  }
+
+  .input-group {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .input-group.small {
+    gap: 2px;
+  }
+
+  .input-group.small label {
+    font-size: 9px;
+  }
+
+  .input-group.small input {
+    padding: 3px 4px;
+    font-size: 10px;
+    width: 100%;
+  }
+
+  .input-group label {
+    font-size: 10px;
+    font-weight: 600;
+    color: #aaa;
+    text-transform: uppercase;
+    letter-spacing: 0.3px;
+  }
+
+  .input-group input,
+  .input-group textarea,
+  .input-group select {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-family: 'Noto Sans KR', sans-serif;
+    font-size: 11px;
+    padding: 3px 5px;
+    transition: border-color 0.2s;
+  }
+
+  .input-group input:focus,
+  .input-group textarea:focus,
+  .input-group select:focus {
+    outline: none;
+    border-color: #00c853;
+    box-shadow: 0 0 0 2px rgba(0, 200, 83, 0.1);
+  }
+
+  .input-group textarea {
+    resize: vertical;
+    min-height: 45px;
+    font-size: 11px;
+  }
+
+  .copy-btn {
+    background: #00c853;
+    color: #000;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 10px;
+    font-size: 11px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.1s;
+    letter-spacing: 0.3px;
+  }
+
+  .copy-btn:hover {
+    background: #00e676;
+  }
+
+  .copy-btn:active {
+    transform: scale(0.98);
+  }
+
+  .copy-btn.copied {
+    background: #4caf50;
+  }
+
+  /* ── 즐겨찾기 ── */
+  .fav-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+    padding: 6px 0 4px;
+    border-bottom: 1px solid #2a2a2a;
+  }
+  .icon-btn {
+    background: #2a2a2a;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #aaa;
+    font-size: 11px;
+    padding: 3px 7px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .icon-btn:hover { background: #333; color: #fff; }
+
+  .fav-folder {
+    margin-bottom: 4px;
+    border: 1px solid #2a2a2a;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .fav-folder-header {
+    display: flex;
+    align-items: center;
+    padding: 5px 8px;
+    background: #222;
+    cursor: pointer;
+    user-select: none;
+    gap: 6px;
+  }
+  .fav-folder-header:hover { background: #2a2a2a; }
+  .fav-folder-name {
+    flex: 1;
+    font-size: 11px;
+    font-weight: 600;
+    color: #ccc;
+  }
+  .fav-folder-arrow { font-size: 9px; color: #555; transition: transform 0.15s; }
+  .fav-folder.open .fav-folder-arrow { transform: rotate(90deg); }
+  .fav-folder-actions { display: flex; gap: 4px; }
+  .fav-folder-actions button {
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 2px;
+    line-height: 1;
+  }
+  .fav-folder-actions button:hover { color: #00c853; }
+
+  .fav-items {
+    display: none;
+    padding: 3px 0;
+    background: #1a1a1a;
+  }
+  .fav-folder.open .fav-items { display: block; }
+
+  .fav-item {
+    display: flex;
+    align-items: center;
+    padding: 4px 12px;
+    gap: 6px;
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .fav-item:hover { background: #222; }
+  .fav-item-name {
+    flex: 1;
+    font-size: 11px;
+    color: #bbb;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .fav-item-type {
+    font-size: 9px;
+    font-weight: 700;
+    border-radius: 3px;
+    padding: 1px 5px;
+  }
+  .fav-item-type.mrk {
+    background: rgba(79, 195, 247, 0.15);
+    color: #4fc3f7;
+    border: 1px solid rgba(79, 195, 247, 0.3);
+  }
+  .fav-item-type.scr {
+    background: rgba(206, 147, 216, 0.15);
+    color: #ce93d8;
+    border: 1px solid rgba(206, 147, 216, 0.3);
+  }
+  .fav-item-actions { display: flex; gap: 3px; }
+  .fav-item-actions button {
+    background: none;
+    border: none;
+    color: #555;
+    cursor: pointer;
+    font-size: 11px;
+    padding: 0 2px;
+  }
+  .fav-item-actions button:hover { color: #ef5350; }
+  .fav-copy-btn:hover { color: #00c853 !important; }
+  .fav-run-btn { color: #00c853 !important; }
+  .fav-run-btn:hover { color: #00e676 !important; }
+
+  .fav-empty {
+    padding: 6px 12px;
+    font-size: 10px;
+    color: #444;
+    font-style: italic;
+  }
+
+  /* ── 인라인 폼 (모달 대체) ── */
+  .inline-form {
+    display: none;
+    flex-direction: column;
+    gap: 7px;
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 6px;
+    padding: 10px;
+    margin-bottom: 8px;
+  }
+  .inline-form.open { display: flex; }
+  .inline-form-title { font-size: 11px; font-weight: 700; color: #ccc; margin-bottom: 2px; }
+  .inline-form input,
+  .inline-form select,
+  .inline-form textarea {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 11px;
+    padding: 5px 7px;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .inline-form textarea { resize: vertical; min-height: 60px; }
+  .inline-form-label { font-size: 10px; color: #888; margin-bottom: 1px; }
+  .inline-form-btns { display: flex; gap: 6px; justify-content: flex-end; margin-top: 2px; }
+  .inline-form-btn {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #ccc;
+    font-size: 11px;
+    padding: 5px 12px;
+    cursor: pointer;
+  }
+  .inline-form-btn.primary { background: #00c853; border-color: #00c853; color: #000; font-weight: 700; }
+  .inline-form-btn:hover { background: #333; }
+  .inline-form-btn.primary:hover { background: #00e676; }
+
+
+  /* ── 드래그앤드롭 ── */
+  .fav-item[draggable="true"] { cursor: grab; }
+  .fav-item.dragging { opacity: 0.4; }
+  .fav-item.drag-over { border-top: 2px solid #00c853; }
+  .fav-folder.drag-target > .fav-folder-header { background: #1a3a2a; border-color: #00c853; }
+
+
+  /* ── 실행 버튼 ── */
+  .fav-run-btn {
+    background: none;
+    border: none;
+    color: #00c853;
+    cursor: pointer;
+    font-size: 13px;
+    padding: 0 2px;
+    line-height: 1;
+    transition: color 0.15s;
+  }
+  .fav-run-btn:hover { color: #00e676; }
+  .fav-run-all-btn {
+    font-size: 10px;
+    background: none;
+    border: 1px solid #1a5a2a;
+    border-radius: 3px;
+    color: #00c853;
+    cursor: pointer;
+    padding: 1px 5px;
+    transition: background 0.15s, color 0.15s;
+  }
+  .fav-run-all-btn:hover { background: #1a4a2a; color: #00e676; }
+  .fav-run-all-btn:disabled { color: #333; border-color: #2a2a2a; cursor: default; }
+
+
+  /* ── 편집 인라인 폼 ── */
+  .fav-edit-form {
+    display: none;
+    flex-direction: column;
+    gap: 6px;
+    background: #1e1e1e;
+    border: 1px solid #444;
+    border-radius: 5px;
+    padding: 8px;
+    margin: 2px 8px 4px 8px;
+  }
+  .fav-edit-form.open { display: flex; }
+  .fav-edit-form input,
+  .fav-edit-form textarea {
+    background: #2a2a2a;
+    border: 1px solid #444;
+    border-radius: 4px;
+    color: #e0e0e0;
+    font-size: 11px;
+    padding: 4px 6px;
+    font-family: inherit;
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .fav-edit-form textarea { resize: vertical; min-height: 70px; }
+  .fav-edit-label { font-size: 10px; color: #888; }
+  .fav-edit-btns { display: flex; gap: 5px; justify-content: flex-end; }
+  .fav-edit-btn {
+    background: #2a2a2a; border: 1px solid #444; border-radius: 3px;
+    color: #ccc; font-size: 11px; padding: 4px 10px; cursor: pointer;
+  }
+  .fav-edit-btn.primary { background: #00c853; border-color: #00c853; color: #000; font-weight: 700; }
+  .fav-edit-btn:hover { background: #333; }
+  .fav-edit-btn.primary:hover { background: #00e676; }
+
+
+  /* ── 내보내기/불러오기 ── */
+  .io-btn {
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 4px;
+    color: #888;
+    font-size: 10px;
+    padding: 2px 7px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .io-btn:hover { background: #2a2a2a; color: #ccc; border-color: #555; }
+  .io-section {
+    display: flex;
+    gap: 4px;
+    align-items: center;
+    padding: 5px 0 3px;
+    border-top: 1px solid #222;
+    margin-top: 4px;
+    flex-wrap: wrap;
+  }
+  .io-section-label { font-size: 9px; color: #444; margin-right: 2px; }
+  .io-folder-row {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 3px 8px;
+    background: #1a1a1a;
+    border-top: 1px solid #1a1a1a;
+  }
+  .io-folder-label { font-size: 10px; color: #555; flex: 1; }
+
+
+  /* ── 폴더 드래그 ── */
+  .fav-folder[draggable="true"] { cursor: grab; }
+  .fav-folder.folder-dragging { opacity: 0.4; }
+  .fav-folder.folder-drag-over-top { border-top: 2px solid #F7E987; }
+  .fav-folder.folder-drag-over-bottom { border-bottom: 2px solid #F7E987; }
+
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-icon">C</div>
+  <span class="header-title">Ccfolia Helper</span>
+  <span class="header-sub">v1.0</span>
+</div>
+
+<div class="tabs">
+  <div class="tab active" data-tab="marker">Marker</div>
+  <div class="tab" data-tab="screen">Screen</div>
+  <div class="tab" data-tab="fav">★ 즐겨찾기</div>
+  <div class="tab disabled" data-tab="etc">기타<span class="badge">soon</span></div>
+</div>
+
+<!-- Marker Panel 탭 -->
+<div class="tab-content active" id="tab-marker">
+  <div class="section-title">마커 패널 설정</div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">자동 저장</div>
+      <div class="toggle-desc">입력 완료 후 창 닫기</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="autoSaveMarker" checked>
+      <div class="toggle-track"></div>
+      <div class="toggle-thumb"></div>
+    </label>
+  </div>
+
+  <div id="statusMarker" class="status saved">✓ 자동 저장 ON — 붙여넣기 후 즉시 완료됩니다</div>
+
+  <!-- JSON 생성기 -->
+  <div class="section-title" style="margin-top: 16px;">JSON 생성기</div>
+  
+  <div class="generator-header" id="markerGeneratorHeader">
+    <span>▶ 생성기 펼치기</span>
+  </div>
+
+  <div class="json-generator collapsed" id="markerGenerator">
+    <div class="input-row">
+      <div class="input-group small">
+        <label>Width</label>
+        <input type="number" id="markerWidth" value="2" min="1">
+      </div>
+      <div class="input-group small">
+        <label>Height</label>
+        <input type="number" id="markerHeight" value="2" min="1">
+      </div>
+      <div class="input-group small">
+        <label>Priority</label>
+        <input type="number" id="markerPriority" value="1" min="1">
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label>Memo (필수)</label>
+      <textarea id="markerMemo" placeholder="마커 설명..."></textarea>
+    </div>
+
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">Fixed Placement</div>
+        <div class="toggle-desc">위치 고정</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="markerFixedPlacement">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">Fixed Size</div>
+        <div class="toggle-desc">크기 고정</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="markerFixedSize">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <div class="input-group">
+      <label>Click Action</label>
+      <select id="markerClickAction">
+        <option value="none">None</option>
+        <option value="sendToChat">Send to chat</option>
+      </select>
+    </div>
+    <div class="input-group" id="markerClickActionGroup" style="display:none;">
+      <label>Click Action Text</label>
+      <textarea id="markerClickActionText" placeholder="채팅으로 보낼 내용..."></textarea>
+    </div>
+
+    <button id="markerCopyBtn" class="copy-btn">📋 JSON 복사</button>
+    <button id="markerFavBtn" class="copy-btn" style="background:#F7E987;color:#1a1a1a;border:1px solid #1a1a1a;">☆ 즐겨찾기 추가</button>
+  </div>
+</div>
+
+<!-- Screen Panel 탭 -->
+<div class="tab-content" id="tab-screen">
+  <div class="section-title">스크린 패널 설정</div>
+
+  <div class="toggle-row">
+    <div>
+      <div class="toggle-label">자동 저장</div>
+      <div class="toggle-desc">입력 완료 후 창 닫기</div>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="autoSaveScreen" checked>
+      <div class="toggle-track"></div>
+      <div class="toggle-thumb"></div>
+    </label>
+  </div>
+
+  <div id="statusScreen" class="status saved">✓ 자동 저장 ON — 붙여넣기 후 즉시 완료됩니다</div>
+
+  <!-- JSON 생성기 -->
+  <div class="section-title" style="margin-top: 16px;">JSON 생성기</div>
+  
+  <div class="generator-header" id="screenGeneratorHeader">
+    <span>▶ 생성기 펼치기</span>
+  </div>
+
+  <div class="json-generator collapsed" id="screenGenerator">
+    <div class="input-row">
+      <div class="input-group small">
+        <label>Width</label>
+        <input type="number" id="screenWidth" value="4" min="1">
+      </div>
+      <div class="input-group small">
+        <label>Height</label>
+        <input type="number" id="screenHeight" value="4" min="1">
+      </div>
+      <div class="input-group small">
+        <label>Priority</label>
+        <input type="number" id="screenPriority" value="1" min="1">
+      </div>
+    </div>
+
+    <div class="input-group">
+      <label>Memo (필수)</label>
+      <textarea id="screenMemo" placeholder="스크린 설명..."></textarea>
+    </div>
+
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">Fixed Placement</div>
+        <div class="toggle-desc">위치 고정</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="screenFixedPlacement">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">Fixed Size</div>
+        <div class="toggle-desc">크기 고정</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="screenFixedSize">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <div class="toggle-row">
+      <div>
+        <div class="toggle-label">As a Plane Panel</div>
+        <div class="toggle-desc">단축키 비활성화</div>
+      </div>
+      <label class="toggle">
+        <input type="checkbox" id="screenAsPlanePanel">
+        <div class="toggle-track"></div>
+        <div class="toggle-thumb"></div>
+      </label>
+    </div>
+
+    <div class="input-group">
+      <label>Click Action</label>
+      <select id="screenClickAction">
+        <option value="none">None</option>
+        <option value="sendToChat">Send to chat</option>
+      </select>
+    </div>
+    <div class="input-group" id="screenClickActionGroup" style="display:none;">
+      <label>Click Action Text</label>
+      <textarea id="screenClickActionText" placeholder="채팅으로 보낼 내용..."></textarea>
+    </div>
+
+    <button id="screenCopyBtn" class="copy-btn">📋 JSON 복사</button>
+    <button id="screenFavBtn" class="copy-btn" style="background:#F7E987;color:#1a1a1a;border:1px solid #1a1a1a;">☆ 즐겨찾기 추가</button>
+  </div>
+</div>
+
+<!-- 즐겨찾기 탭 -->
+<div class="tab-content" id="tab-fav">
+
+  <!-- 폴더 관리 툴바 -->
+  <div class="fav-toolbar">
+    <span class="section-title" style="margin:0">즐겨찾기</span>
+    <div style="display:flex;gap:4px">
+      <button class="icon-btn" id="addFolderBtn" title="폴더 추가">📁+</button>
+      <button class="icon-btn" id="addBookmarkBtn" title="항목 추가">＋</button>
+    </div>
+  </div>
+
+  <!-- 폴더 추가 인라인 폼 -->
+  <div class="inline-form" id="addFolderForm">
+    <div class="inline-form-title">📁 폴더 만들기</div>
+    <div>
+      <div class="inline-form-label">폴더 이름</div>
+      <input type="text" id="folderNameInput" placeholder="예: 전투, 이벤트...">
+    </div>
+    <div class="inline-form-btns">
+      <button class="inline-form-btn" id="cancelFolderBtn">취소</button>
+      <button class="inline-form-btn primary" id="confirmFolderBtn">만들기</button>
+    </div>
+  </div>
+
+  <!-- 항목 추가 인라인 폼 -->
+  <div class="inline-form" id="addBookmarkForm">
+    <div class="inline-form-title">★ 즐겨찾기 추가</div>
+    <div>
+      <div class="inline-form-label">이름</div>
+      <input type="text" id="bookmarkNameInput" placeholder="예: 전투 마커 1">
+    </div>
+    <div>
+      <div class="inline-form-label">폴더</div>
+      <select id="bookmarkFolderSelect"></select>
+    </div>
+    <div>
+      <div class="inline-form-label">JSON 데이터</div>
+      <textarea id="bookmarkJsonInput" placeholder='{"memo":"..."}'></textarea>
+    </div>
+    <div class="inline-form-btns">
+      <button class="inline-form-btn" id="cancelBookmarkBtn">취소</button>
+      <button class="inline-form-btn primary" id="confirmBookmarkBtn">추가</button>
+    </div>
+  </div>
+
+  <div id="favTree"></div>
+
+  <!-- 내보내기/불러오기 -->
+  <div class="io-section">
+    <span class="io-section-label">전체</span>
+    <button class="io-btn" id="exportAllBtn">⬆ 전체 내보내기</button>
+    <button class="io-btn" id="importAllBtn">⬇ 전체 불러오기</button>
+    <input type="file" id="importAllInput" accept=".json" style="display:none">
+  </div>
+
+</div>
+
+<!-- 기타 탭 (준비중) -->
+<div class="tab-content" id="tab-etc">
+  <div class="coming-soon">
+    <div class="icon">⚙️</div>
+    준비 중입니다
+  </div>
+</div>
+
+<script src="popup.js"></script>
+
+</body>
+</html>

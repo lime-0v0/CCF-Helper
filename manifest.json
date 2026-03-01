@@ -1,0 +1,29 @@
+{
+  "manifest_version": 3,
+  "name": "Ccfolia Helper",
+  "version": "1.1.0",
+  "description": "Ccfolia 마커 패널 자동 생성 도우미",
+  "permissions": [
+    "clipboardRead",
+    "storage",
+    "tabs"
+  ],
+  "host_permissions": [
+    "https://ccfolia.com/rooms/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://ccfolia.com/rooms/*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Ccfolia Helper"
+  }
+}
