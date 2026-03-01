@@ -1,7 +1,22 @@
 // =============================================
-// Ccfolia Marker Panel Auto Creator - content.js
+// Ccfolia Helper - content.js
 // =============================================
 
+// ── inject.js를 페이지 컨텍스트에 주입 (Firebase 토큰 캡처용) ────────
+(function injectPageScript() {
+  const s = document.createElement("script");
+  s.src = chrome.runtime.getURL("inject.js");
+  s.onload = () => s.remove();
+  (document.head ?? document.documentElement).appendChild(s);
+})();
+
+// ── URL에서 roomId 추출 ───────────────────────────────────────────────
+function getRoomId() {
+  const m = window.location.pathname.match(/\/rooms\/([^/]+)/);
+  return m ? m[1] : null;
+}
+
+// ── 유틸 ──────────────────────────────────────────────────────────────
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 async function waitFor(fn, timeout = 3000) {
@@ -26,30 +41,29 @@ function setInput(el, value) {
   el.dispatchEvent(new Event("change", { bubbles: true }));
 }
 
-// React toggle (MUI Switch) 클릭 - 현재 상태 확인 후 필요할 때만 클릭
 function setToggle(checkbox, desiredOn) {
-  const isOn = checkbox.checked;
-  if (isOn !== desiredOn) checkbox.click();
+  if (checkbox.checked !== desiredOn) checkbox.click();
 }
 
 function parseJson(raw) {
   let data;
   try { data = JSON.parse(raw); } catch { return null; }
   if (!data.memo) { console.warn("[CcfoliaHelper] memo 필드가 없습니다."); return null; }
-  
-  const type = data.type ?? "marker"; // 기본값: marker
+
+  const type = data.type ?? "marker";
   const isScreen = type === "screen";
-  
+
   return {
     type,
-    width:           data.width            ?? (isScreen ? 4 : 2),
-    height:          data.height           ?? (isScreen ? 4 : 2),
-    overlapPriority: data.overlapPriority  ?? 1,
+    width:           data.width           ?? (isScreen ? 4 : 2),
+    height:          data.height          ?? (isScreen ? 4 : 2),
+    overlapPriority: data.overlapPriority ?? 1,
     memo:            String(data.memo),
-    fixedPlacement:  data.fixedPlacement   ?? false,
-    fixedSize:       data.fixedSize        ?? false,
-    clickAction:     data.clickAction      ?? "none",
-    clickActionText: data.clickActionText  ?? "",
+    fixedPlacement:  data.fixedPlacement  ?? false,
+    fixedSize:       data.fixedSize       ?? false,
+    asPlanePanel:    data.asPlanePanel    ?? false,
+    clickAction:     data.clickAction     ?? "none",
+    clickActionText: data.clickActionText ?? "",
   };
 }
 
@@ -58,46 +72,66 @@ function getDialog(panelType = "Marker panel settings") {
     .find((el) => el.textContent.includes(panelType));
 }
 
-// 설정 읽기 (popup에서 저장한 autoSave 설정)
 async function getSettings(panelType) {
   return new Promise((resolve) => {
     const key = panelType === "screen" ? "autoSaveScreen" : "autoSaveMarker";
-    chrome.storage.sync.get({ [key]: true }, (data) => {
-      resolve({ autoSave: data[key] });
-    });
+    chrome.storage.sync.get({ [key]: true }, (data) => resolve({ autoSave: data[key] }));
   });
 }
 
-// ── 메인 ──────────────────────────────────────
-async function createPanel(panelData) {
-  console.log("[CcfoliaHelper] 시작", panelData);
-  
+// ── API 방식: inject.js에 메시지 → Firestore REST API ────────────────
+let _reqCounter = 0;
+
+function createPanelViaAPI(panelData) {
+  const roomId = getRoomId();
+  if (!roomId) return Promise.reject(new Error("ROOM_ID_NOT_FOUND"));
+
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => {
+      window.removeEventListener("message", onMsg);
+      reject(new Error("TIMEOUT"));
+    }, 8000);
+
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "CREATE_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer);
+      window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve();
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "CREATE_ITEM", requestId, roomId, itemData: panelData }, "*");
+  });
+}
+
+// ── DOM 방식 (GM 전용 버튼 필요 / 폴백) ─────────────────────────────
+async function createPanelViaDOM(panelData) {
   const isScreen = panelData.type === "screen";
   const listName = isScreen ? "Screen panel list" : "Marker panel list";
   const buttonLabel = isScreen ? "[GM] Screen panel list" : "[GM] Marker panel list";
   const settingsName = isScreen ? "Screen panel settings" : "Marker panel settings";
 
-  // STEP 0: 이미 열려있는 panel list가 있으면 닫기
+  // STEP 0: 이미 열려있는 panel list 닫기
   const existingPanel = [...document.querySelectorAll("header")].find(
     (el) => el.querySelector("h6")?.textContent.includes(listName)
   );
   if (existingPanel) {
-    // X 버튼 (CloseIcon) 찾아서 닫기
     const closeBtn = [...existingPanel.querySelectorAll("button")].find(
       (btn) => btn.querySelector("svg path")?.getAttribute("d")?.includes("M19 6.41")
     );
-    if (closeBtn) {
-      closeBtn.click();
-      await wait(200);
-    }
+    if (closeBtn) { closeBtn.click(); await wait(200); }
   }
 
   // STEP 1: Panel list 열기
   const panelListBtn = findButtonByAriaLabel(buttonLabel);
-  if (!panelListBtn) { console.error(`[CcfoliaHelper] ${listName} 버튼 없음`); return; }
+  if (!panelListBtn) { console.error(`[CcfoliaHelper] ${listName} 버튼 없음 (GM 전용)`); return; }
   panelListBtn.click();
 
-  // STEP 2: + 버튼 클릭
+  // STEP 2: + 버튼
   const addBtn = await waitFor(() => {
     const header = [...document.querySelectorAll("header")].find(
       (el) => el.querySelector("h6")?.textContent.includes(listName)
@@ -122,26 +156,21 @@ async function createPanel(panelData) {
   if (!noImageBtn) { console.error("[CcfoliaHelper] NOIMAGE 없음"); return; }
   noImageBtn.click();
 
-  // STEP 4: 목록 맨 아래 NOTEXT 클릭
+  // STEP 4: NOTEXT 항목 클릭
   const lastItem = await waitFor(() => {
     const items = [...document.querySelectorAll("li, div")].filter(
-      (el) =>
-        el.textContent.includes("NOTEXT") &&
-        el.children.length <= 5 &&
-        el.getBoundingClientRect().height > 0
+      (el) => el.textContent.includes("NOTEXT") && el.children.length <= 5 && el.getBoundingClientRect().height > 0
     );
     return items.length > 0 ? items[items.length - 1] : null;
   });
   if (!lastItem) { console.error("[CcfoliaHelper] NOTEXT 항목 없음"); return; }
   lastItem.click();
 
-  // STEP 5: settings 창 inputs 대기 및 값 입력
+  // STEP 5: 입력 필드 채우기
   const inputs = await waitFor(() => {
     const d = getDialog(settingsName);
     if (!d) return null;
-    const list = [...d.querySelectorAll("input")].filter(
-      (inp) => inp.getBoundingClientRect().width > 0
-    );
+    const list = [...d.querySelectorAll("input")].filter((inp) => inp.getBoundingClientRect().width > 0);
     return list.length >= 3 ? list : null;
   });
   if (!inputs) { console.error("[CcfoliaHelper] settings 입력 필드 없음"); return; }
@@ -150,47 +179,38 @@ async function createPanel(panelData) {
   setInput(inputs[1], String(panelData.height));
   setInput(inputs[2], String(panelData.overlapPriority));
 
-  // Memo
   const dialog = getDialog(settingsName);
-  const textarea = dialog && [...dialog.querySelectorAll("textarea")]
-    .find((ta) => ta.getBoundingClientRect().width > 0);
+  const textarea = dialog && [...dialog.querySelectorAll("textarea")].find((ta) => ta.getBoundingClientRect().width > 0);
   if (textarea) setInput(textarea, panelData.memo);
 
-  // Fixed placement / Fixed size / As a plane panel (MUI Switch = input[type=checkbox])
   if (dialog) {
-    const checkboxes = [...dialog.querySelectorAll("input[type='checkbox']")]
-      .filter(el => el.getBoundingClientRect().width > 0);
-    // 순서: Fixed placement (0번), Fixed size (1번), As a plane panel (2번, Screen only)
+    const checkboxes = [...dialog.querySelectorAll("input[type='checkbox']")].filter(
+      (el) => el.getBoundingClientRect().width > 0
+    );
     if (checkboxes[0]) setToggle(checkboxes[0], panelData.fixedPlacement);
     if (checkboxes[1]) setToggle(checkboxes[1], panelData.fixedSize);
     if (checkboxes[2] && isScreen) setToggle(checkboxes[2], panelData.asPlanePanel ?? false);
   }
 
-  // STEP 6: Advanced settings & click-action
+  // STEP 6: Click action
   if (panelData.clickAction === "sendToChat") {
     const advBtn = await waitFor(() => {
       const d = getDialog(settingsName);
       if (!d) return null;
       return [...d.querySelectorAll("[role='button']")].find(
-        (el) =>
-          el.textContent.includes("Advanced settings") &&
-          el.getBoundingClientRect().height > 0
+        (el) => el.textContent.includes("Advanced settings") && el.getBoundingClientRect().height > 0
       );
     });
     if (advBtn) {
       advBtn.click();
       await waitFor(() => advBtn.getAttribute("aria-expanded") === "true");
-
       const dropdown = await waitFor(() => {
         const d = getDialog(settingsName);
         if (!d) return null;
         return [...d.querySelectorAll("[role='combobox']")].find(
-          (el) =>
-            el.textContent.includes("No operations") &&
-            el.getBoundingClientRect().height > 10
+          (el) => el.textContent.includes("No operations") && el.getBoundingClientRect().height > 10
         );
       });
-
       if (dropdown) {
         dropdown.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
         const option = await waitFor(() =>
@@ -213,7 +233,7 @@ async function createPanel(panelData) {
     }
   }
 
-  // STEP 7: autoSave 설정에 따라 Save 또는 대기
+  // STEP 7: 저장
   const { autoSave } = await getSettings(panelData.type);
   if (autoSave) {
     await wait(50);
@@ -224,25 +244,42 @@ async function createPanel(panelData) {
     );
     if (saveBtn) {
       saveBtn.click();
-      console.log(`[CcfoliaHelper] ✅ ${isScreen ? "Screen panel" : "Marker panel"} 완료 (자동 저장)!`);
+      console.log(`[CcfoliaHelper] ✅ DOM 방식 저장 완료 (${isScreen ? "Screen" : "Marker"})`);
     } else {
-      console.warn("[CcfoliaHelper] Save 버튼 못 찾음 - 수동으로 저장해주세요");
+      console.warn("[CcfoliaHelper] Save 버튼 못 찾음 - 수동 저장 필요");
     }
   } else {
-    console.log(`[CcfoliaHelper] ✅ ${isScreen ? "Screen panel" : "Marker panel"} 입력 완료 - 수동 저장 모드`);
+    console.log(`[CcfoliaHelper] ✅ DOM 방식 입력 완료 - 수동 저장 모드`);
   }
 }
 
+// ── 메인: API 우선, 실패 시 DOM 폴백 ─────────────────────────────────
+async function createPanel(panelData) {
+  const label = panelData.type === "screen" ? "Screen panel" : "Marker panel";
+  try {
+    await createPanelViaAPI(panelData);
+    console.log(`[CcfoliaHelper] ✅ ${label} 생성 완료 (API)`);
+  } catch (e) {
+    if (e.message === "AUTH_TOKEN_NOT_CAPTURED") {
+      console.warn("[CcfoliaHelper] 토큰 미확보 → DOM 방식으로 폴백");
+    } else if (e.message === "ROOM_ID_NOT_FOUND") {
+      console.warn("[CcfoliaHelper] roomId 없음 → DOM 방식으로 폴백");
+    } else {
+      console.warn(`[CcfoliaHelper] API 실패 (${e.message}) → DOM 방식으로 폴백`);
+    }
+    await createPanelViaDOM(panelData);
+  }
+}
 
-// ── popup에서 오는 메시지 수신 ──────────────
+// ── popup에서 오는 메시지 수신 ────────────────────────────────────────
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === "CREATE_PANEL") {
     createPanel(msg.data).then(() => sendResponse({ ok: true }));
-    return true; // 비동기 응답
+    return true;
   }
 });
 
-// ── paste 이벤트 ──────────────────────────────
+// ── paste 이벤트 ──────────────────────────────────────────────────────
 document.addEventListener("paste", async (e) => {
   const t = e.target;
   if (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable) return;
@@ -255,7 +292,6 @@ document.addEventListener("paste", async (e) => {
 
   e.preventDefault();
   e.stopImmediatePropagation();
-
   await createPanel(panelData);
 }, true);
 
