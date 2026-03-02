@@ -424,7 +424,18 @@
   .fav-item[draggable="true"] { cursor: grab; }
   .fav-item.dragging { opacity: 0.4; }
   .fav-item.drag-over { border-top: 2px solid #00c853; }
+  .fav-item.drag-over-bottom { border-bottom: 2px solid #00c853; }
   .fav-folder.drag-target > .fav-folder-header { background: #1a3a2a; border-color: #00c853; }
+
+  .fav-item-thumb {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+    border-radius: 2px;
+    flex-shrink: 0;
+    background: #222;
+    border: 1px solid #2a2a2a;
+  }
 
 
   /* ── 실행 버튼 ── */

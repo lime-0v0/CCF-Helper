@@ -376,6 +376,7 @@ async function renderFavTree() {
           return `
           <div class="fav-item" data-id="${escapeHtml(b.id)}" draggable="true">
             <span class="fav-item-type ${b.data?.type === "screen" ? "scr" : "mrk"}">${b.data?.type === "screen" ? "SCR" : "MRK"}</span>
+            ${b.data?.imageUrl ? `<img class="fav-item-thumb" src="${escapeHtml(b.data.imageUrl)}" onerror="this.style.display='none'" alt="">` : ""}
             <span class="fav-item-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
               <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
@@ -568,15 +569,51 @@ async function renderFavTree() {
       });
     }
 
-    // ── 드래그앤드롭: 항목 → 폴더 이동 ──
+    // ── 드래그앤드롭: 항목 순서 변경 및 폴더 이동 ──
     folderEl.querySelectorAll(".fav-item").forEach((item) => {
       item.addEventListener("dragstart", (e) => {
-        e.stopPropagation(); // 폴더 드래그와 구분
+        e.stopPropagation();
         e.dataTransfer.setData("bookmarkId", item.dataset.id);
         item.classList.add("dragging");
         console.log("[CcfoliaHelper] 항목 드래그 시작:", item.querySelector(".fav-item-name")?.textContent);
       });
-      item.addEventListener("dragend", () => item.classList.remove("dragging"));
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+        document.querySelectorAll(".drag-over, .drag-over-bottom")
+          .forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+      });
+      item.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("bookmarkid")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        document.querySelectorAll(".drag-over, .drag-over-bottom")
+          .forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+        const rect = item.getBoundingClientRect();
+        item.classList.add(e.clientY < rect.top + rect.height / 2 ? "drag-over" : "drag-over-bottom");
+      });
+      item.addEventListener("dragleave", (e) => {
+        if (!item.contains(e.relatedTarget))
+          item.classList.remove("drag-over", "drag-over-bottom");
+      });
+      item.addEventListener("drop", async (e) => {
+        item.classList.remove("drag-over", "drag-over-bottom");
+        const bookmarkId = e.dataTransfer.getData("bookmarkId");
+        if (!bookmarkId || bookmarkId === item.dataset.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const d = await getFavData();
+        const fromIdx = d.bookmarks.findIndex(b => b.id === bookmarkId);
+        const toIdx = d.bookmarks.findIndex(b => b.id === item.dataset.id);
+        if (fromIdx === -1 || toIdx === -1) return;
+        const rect = item.getBoundingClientRect();
+        const insertBefore = e.clientY < rect.top + rect.height / 2;
+        const [moved] = d.bookmarks.splice(fromIdx, 1);
+        moved.folderId = d.bookmarks[d.bookmarks.findIndex(b => b.id === item.dataset.id)].folderId;
+        const newToIdx = d.bookmarks.findIndex(b => b.id === item.dataset.id);
+        d.bookmarks.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
+        await saveFavData(d);
+        renderFavTree();
+      });
     });
 
     // ── 폴더 순서 드래그앤드롭 ──
