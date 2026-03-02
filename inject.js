@@ -114,6 +114,7 @@
 
   // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
   let _contextPanelCache = null;
+  let _cachedReduxStore  = null; // Redux store 캐시 (fiber walk 중 발견 시 저장)
 
   document.addEventListener("contextmenu", (e) => {
     _contextPanelCache = null;
@@ -157,6 +158,13 @@
             }
           }
         }
+      }
+
+      // 4차: Redux store에서 직접 패널 탐색
+      // (1~3차 모두 실패 시 — 뒷면 포탈이 Room 레벨 렌더링이라 fiber chain에 패널 컴포넌트 없음)
+      // 1차 fiber walk에서 Redux Provider fiber를 통과하며 _cachedReduxStore가 이미 세팅됨
+      if (!data && _cachedReduxStore) {
+        data = _findPanelInRedux(e.clientX, e.clientY);
       }
 
       _contextPanelCache = data;
@@ -294,6 +302,16 @@
         console.log(`[CCFHelper:fiber] dom=${domDepth} f=${i} [${keys.slice(0,10).join(",")}]`, sample);
       }
 
+      // ── Redux Provider 감지 → store 캐시 ──────────────────────────────
+      // fiber chain에는 항상 Redux Provider가 포함되므로 한 번만 캐시하면 됨
+      if (!_cachedReduxStore) {
+        const val = fiber.memoizedProps?.value;
+        if (val?.store?.getState) {
+          _cachedReduxStore = val.store;
+          console.log("[CCFHelper:redux] Redux store cached ✓");
+        }
+      }
+
       // ── memoizedState 덤프 + 매칭 (hook state / Redux useSelector 결과) ──
       // ccfolia는 useSelector로 Redux에서 패널 데이터를 가져오므로
       // memoizedProps가 아닌 memoizedState(hook state)에 데이터가 있을 수 있음
@@ -338,13 +356,80 @@
       console.log(`[CCFHelper:match] SCREEN hit at dom=${domDepth} fiber=${fiberDepth}`, props);
       return _buildData("screen", props.memo, props);
     }
-    // 중첩 객체 탐색
-    for (const k of ["marker", "item", "panel", "data", "value"]) {
+    // 중첩 객체 탐색 ("current" = useRef hook state 대응)
+    for (const k of ["marker", "item", "panel", "data", "value", "current"]) {
       const v = props[k];
       if (v && typeof v === "object" && !Array.isArray(v)) {
         const r = _matchProps(v, domDepth, fiberDepth);
         if (r) return r;
       }
+    }
+    return null;
+  }
+
+  /** Redux store에서 패널 객체를 탐색해 _buildData로 반환 */
+  function _findPanelInRedux(clientX, clientY) {
+    if (!_cachedReduxStore) return null;
+    try {
+      const state = _cachedReduxStore.getState();
+
+      // 클릭 좌표에 해당하는 .movable 찾기
+      let targetMovable = null;
+      for (const mv of document.querySelectorAll(".movable")) {
+        const r = mv.getBoundingClientRect();
+        if (clientX >= r.left && clientX <= r.right &&
+            clientY >= r.top  && clientY <= r.bottom) {
+          targetMovable = mv; break;
+        }
+      }
+
+      // .movable 식별 정보 (imageUrl, 크기, z)
+      const PX_PER_GRID = 24;
+      const imgSrc = targetMovable?.querySelector("img")?.src || "";
+      const gw = targetMovable ? Math.round((parseFloat(targetMovable.style.width)  || 0) / PX_PER_GRID) : 0;
+      const gh = targetMovable ? Math.round((parseFloat(targetMovable.style.height) || 0) / PX_PER_GRID) : 0;
+      const gz = targetMovable ? (parseInt(targetMovable.style.zIndex) || 1) : 1;
+
+      // Redux state에서 패널 객체 재귀 수집 (depth 5, 순환참조 없는 JSON state 가정)
+      const panels = [];
+      const _seen = new Set();
+      function collectPanels(obj, depth) {
+        if (depth > 5 || !obj || typeof obj !== "object" || _seen.has(obj)) return;
+        _seen.add(obj);
+        if (Array.isArray(obj)) { for (const v of obj) collectPanels(v, depth + 1); return; }
+        if (typeof obj.memo === "string" && obj.memo.trim() && obj.width != null && obj.height != null) {
+          panels.push(obj); return;
+        }
+        for (const v of Object.values(obj)) {
+          if (v && typeof v === "object") collectPanels(v, depth + 1);
+        }
+      }
+      collectPanels(state, 0);
+
+      console.log("[CCFHelper:redux] panels:", panels.length,
+        "| imgSrc:", imgSrc.slice(0, 60), "| size:", gw, "×", gh, "z:", gz);
+
+      if (panels.length === 0) return null;
+
+      // 1순위: imageUrl / coverImageUrl 매칭 (가장 정확)
+      if (imgSrc) {
+        const byImg = panels.find(p => p.imageUrl === imgSrc || p.coverImageUrl === imgSrc);
+        if (byImg) {
+          console.log("[CCFHelper:redux] matched by imageUrl:", byImg.memo);
+          return _buildData("screen", byImg.memo, byImg);
+        }
+      }
+      // 2순위: width × height × z 단독 후보
+      const bySize = gw > 0
+        ? panels.filter(p => p.width === gw && p.height === gh && (p.z === gz || p.overlapPriority === gz))
+        : [];
+      if (bySize.length === 1) {
+        console.log("[CCFHelper:redux] matched by size:", bySize[0].memo);
+        return _buildData("screen", bySize[0].memo, bySize[0]);
+      }
+      console.log("[CCFHelper:redux] no unique match — by-size candidates:", bySize.length);
+    } catch (err) {
+      console.warn("[CCFHelper:redux] lookup error:", err);
     }
     return null;
   }
