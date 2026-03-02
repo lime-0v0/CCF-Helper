@@ -244,8 +244,10 @@ async function runOnCcfolia(dataList, triggerBtn) {
     alert("ccfolia 방 탭이 열려있지 않습니다.");
     return;
   }
+  // 탭이 여러 개일 때 가장 최근에 포커스된 탭 사용
+  tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
   const tabId = tabs[0].id;
-  console.log(`[CcfoliaHelper] 실행 시작 - 총 ${dataList.length}개, tabId: ${tabId}`);
+  console.log(`[CcfoliaHelper] 실행 시작 - 총 ${dataList.length}개, tabId: ${tabId} (lastAccessed: ${tabs[0].lastAccessed})`);
 
   const origText = triggerBtn?.textContent;
   if (triggerBtn) { triggerBtn.textContent = "⏳"; triggerBtn.disabled = true; }
