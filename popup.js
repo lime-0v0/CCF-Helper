@@ -215,45 +215,15 @@ function saveAndApplyDefaults(type) {
   const ap   = get("screenDefaultAsPlanePanel")?.checked    ?? false;
   const saved = { width: w, height: h, priority: pr, imageUrl: img, fixedPlacement: fp, fixedSize: fs,
                   ...(type === "screen" ? { coverImageUrl: cimg, asPlanePanel: ap } : {}) };
-  chrome.storage.sync.set({ [`${type}Defaults`]: saved }, () => {
-    if (chrome.runtime.lastError) {
-      console.warn('[CCFHelper] defaults sync 저장 실패:', chrome.runtime.lastError.message);
-    }
-  });
+  chrome.storage.local.set({ [`${type}Defaults`]: saved });
   applyGeneratorDefaults(type, saved);
 }
 
-// 팝업 열릴 때 초기화 (local→sync 마이그레이션 → 기본값 로드 → 즐겨찾기 렌더링)
-(async function initPopup() {
-  const MIGRATE_KEYS = ["folders", "bookmarks", "markerDefaults", "screenDefaults"];
-  await new Promise(resolve => {
-    chrome.storage.local.get(MIGRATE_KEYS, (localData) => {
-      const hasLocal = MIGRATE_KEYS.some(k => localData[k] !== undefined);
-      if (!hasLocal) { resolve(); return; }
-      chrome.storage.sync.get(MIGRATE_KEYS, (syncData) => {
-        const hasSyncData = MIGRATE_KEYS.some(k => syncData[k] !== undefined);
-        if (hasSyncData) {
-          chrome.storage.local.remove(MIGRATE_KEYS);
-          resolve(); return;
-        }
-        chrome.storage.sync.set(localData, () => {
-          if (!chrome.runtime.lastError) {
-            chrome.storage.local.remove(MIGRATE_KEYS);
-            console.log("[CCFHelper] local → sync 마이그레이션 완료");
-          }
-          resolve();
-        });
-      });
-    });
-  });
-
-  chrome.storage.sync.get(["markerDefaults", "screenDefaults"], (data) => {
-    applyGeneratorDefaults("marker", data.markerDefaults);
-    applyGeneratorDefaults("screen", data.screenDefaults);
-  });
-
-  renderFavTree();
-})();
+// 팝업 열릴 때 기본값 로드
+chrome.storage.local.get(["markerDefaults", "screenDefaults"], (data) => {
+  applyGeneratorDefaults("marker", data.markerDefaults);
+  applyGeneratorDefaults("screen", data.screenDefaults);
+});
 
 // 기본값 변경 시 즉시 저장
 ["Width", "Height", "Priority", "ImageUrl", "FixedPlacement", "FixedSize"].forEach(field => {
@@ -307,20 +277,13 @@ async function runOnCcfolia(dataList, triggerBtn) {
 
 async function getFavData() {
   return new Promise((resolve) => {
-    chrome.storage.sync.get({ folders: [{ id: "default", name: "기본 폴더" }], bookmarks: [] }, resolve);
+    chrome.storage.local.get({ folders: [{ id: "default", name: "기본 폴더" }], bookmarks: [] }, resolve);
   });
 }
 
 async function saveFavData(data) {
   return new Promise((resolve) => {
-    chrome.storage.sync.set(data, () => {
-      if (chrome.runtime.lastError) {
-        console.warn('[CCFHelper] sync 저장 실패, local로 대체:', chrome.runtime.lastError.message);
-        chrome.storage.local.set(data, resolve);
-      } else {
-        resolve();
-      }
-    });
+    chrome.storage.local.set(data, resolve);
   });
 }
 
@@ -829,6 +792,8 @@ document.querySelectorAll(".tab").forEach((tab) => {
     if (tab.dataset.tab === "fav") renderFavTree();
   });
 });
+
+renderFavTree();
 
 // =============================================
 // 내보내기 / 불러오기
