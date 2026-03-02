@@ -595,20 +595,16 @@ async function renderFavTree() {
         .forEach(el => el.classList.remove("folder-drag-over-top", "folder-drag-over-bottom"));
     });
     folderEl.addEventListener("dragover", (e) => {
-      // 항목 드래그 중이면 폴더 드롭 처리 (기존 로직)
-      if (e.dataTransfer.types.includes("bookmarkid")) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      // 마우스 위치로 위/아래 판단
+      // 항목 드래그 중이면 폴더 순서 표시 없이 드롭만 허용
+      if (e.dataTransfer.types.includes("bookmarkid")) return;
+      // 폴더 순서 변경: 마우스 위치로 위/아래 판단
       const rect = folderEl.getBoundingClientRect();
       const mid = rect.top + rect.height / 2;
       document.querySelectorAll(".folder-drag-over-top, .folder-drag-over-bottom")
         .forEach(el => el.classList.remove("folder-drag-over-top", "folder-drag-over-bottom"));
-      if (e.clientY < mid) {
-        folderEl.classList.add("folder-drag-over-top");
-      } else {
-        folderEl.classList.add("folder-drag-over-bottom");
-      }
+      folderEl.classList.add(e.clientY < mid ? "folder-drag-over-top" : "folder-drag-over-bottom");
     });
     folderEl.addEventListener("dragleave", (e) => {
       if (!folderEl.contains(e.relatedTarget)) {
