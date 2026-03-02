@@ -113,8 +113,19 @@
   setTimeout(() => { if (!authToken) { tryFirebaseV8(); tryLocalStorage(); } }, 3000);
 
   // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
+  const PX_PER_GRID = 24; // 1그리드 = 24px (ccfolia 고정값)
   let _contextPanelCache = null;
   let _cachedReduxStore  = null; // Redux store 캐시 (fiber walk 중 발견 시 저장)
+
+  /** 주어진 뷰포트 좌표에 해당하는 첫 번째 .movable 요소를 반환 */
+  function _findMovableAtCoords(clientX, clientY) {
+    for (const el of document.querySelectorAll(".movable")) {
+      const r = el.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right &&
+          clientY >= r.top  && clientY <= r.bottom) return el;
+    }
+    return null;
+  }
 
   document.addEventListener("contextmenu", (e) => {
     _contextPanelCache = null;
@@ -137,34 +148,21 @@
         }
       }
 
-      // 3차: .movable 요소를 좌표 기반 hit-test — 뒷면 포탈 오버레이 케이스
-      // (오버레이가 .movable DOM 트리 밖에 렌더링되어 elementsFromPoint가 .movable을 반환 못할 때)
+      // 3·4차: .movable 좌표 hit-test — 뒷면 포탈 오버레이 케이스
+      // (오버레이가 .movable DOM 트리 밖 포탈이라 elementsFromPoint가 .movable을 반환 못할 때)
       if (!data) {
-        const movables = document.querySelectorAll(".movable");
-        for (const movable of movables) {
-          const rect = movable.getBoundingClientRect();
-          if (e.clientX >= rect.left && e.clientX <= rect.right &&
-              e.clientY >= rect.top  && e.clientY <= rect.bottom) {
-            // 먼저 DOM 속성(aria-label 등)에서 추출 시도
-            data = _extractFromDom(movable);
-            if (!data) {
-              // DOM 실패 시 fiber walk 시도 (aria-label이 빈 뒷면 케이스)
-              // .movable 자체의 fiber.return을 통해 패널 컴포넌트까지 올라감
-              data = _extractPanelFromEl(movable);
-            }
-            if (data) {
-              console.log("[CCFHelper:ctx] .movable hit-test success:", data.memo?.slice(0, 20));
-              break;
-            }
+        const movable = _findMovableAtCoords(e.clientX, e.clientY);
+        if (movable) {
+          // 3차: DOM 속성 / fiber walk
+          data = _extractFromDom(movable) || _extractPanelFromEl(movable);
+          if (data) {
+            console.log("[CCFHelper:ctx] .movable hit-test success:", data.memo?.slice(0, 20));
+          } else if (_cachedReduxStore) {
+            // 4차: Redux store 직접 탐색
+            // (뒷면 포탈이 Room 레벨이라 fiber chain에 패널 컴포넌트 없음)
+            data = _findPanelInRedux(movable);
           }
         }
-      }
-
-      // 4차: Redux store에서 직접 패널 탐색
-      // (1~3차 모두 실패 시 — 뒷면 포탈이 Room 레벨 렌더링이라 fiber chain에 패널 컴포넌트 없음)
-      // 1차 fiber walk에서 Redux Provider fiber를 통과하며 _cachedReduxStore가 이미 세팅됨
-      if (!data && _cachedReduxStore) {
-        data = _findPanelInRedux(e.clientX, e.clientY);
       }
 
       _contextPanelCache = data;
@@ -248,16 +246,14 @@
 
     if (!text || !movableEl) return null;
 
-    // imageUrl: 패널 안의 img 태그
-    const imgs = movableEl.querySelectorAll("img");
-    const imageUrl = imgs[0]?.src || undefined;
+    // imageUrl: 패널 안의 첫 번째 img 태그
+    const imageUrl = movableEl.querySelector("img")?.src || undefined;
 
     // width / height / z: .movable 인라인 style
     const width  = parseFloat(movableEl.style.width)  || 0;
     const height = parseFloat(movableEl.style.height) || 0;
     const z      = parseInt(movableEl.style.zIndex)   || 1;
 
-    const PX_PER_GRID = 24;
     const result = {
       type: isScreen ? "screen" : "marker",
       memo: text,
@@ -368,27 +364,16 @@
   }
 
   /** Redux store에서 패널 객체를 탐색해 _buildData로 반환 */
-  function _findPanelInRedux(clientX, clientY) {
-    if (!_cachedReduxStore) return null;
+  function _findPanelInRedux(targetMovable) {
+    if (!_cachedReduxStore || !targetMovable) return null;
     try {
       const state = _cachedReduxStore.getState();
 
-      // 클릭 좌표에 해당하는 .movable 찾기
-      let targetMovable = null;
-      for (const mv of document.querySelectorAll(".movable")) {
-        const r = mv.getBoundingClientRect();
-        if (clientX >= r.left && clientX <= r.right &&
-            clientY >= r.top  && clientY <= r.bottom) {
-          targetMovable = mv; break;
-        }
-      }
-
       // .movable 식별 정보 (imageUrl, 크기, z)
-      const PX_PER_GRID = 24;
-      const imgSrc = targetMovable?.querySelector("img")?.src || "";
-      const gw = targetMovable ? Math.round((parseFloat(targetMovable.style.width)  || 0) / PX_PER_GRID) : 0;
-      const gh = targetMovable ? Math.round((parseFloat(targetMovable.style.height) || 0) / PX_PER_GRID) : 0;
-      const gz = targetMovable ? (parseInt(targetMovable.style.zIndex) || 1) : 1;
+      const imgSrc = targetMovable.querySelector("img")?.src || "";
+      const gw = Math.round((parseFloat(targetMovable.style.width)  || 0) / PX_PER_GRID);
+      const gh = Math.round((parseFloat(targetMovable.style.height) || 0) / PX_PER_GRID);
+      const gz = parseInt(targetMovable.style.zIndex) || 1;
 
       // Redux state에서 패널 객체 재귀 수집 (depth 5, 순환참조 없는 JSON state 가정)
       const panels = [];
