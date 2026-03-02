@@ -1,13 +1,3 @@
-const autoSaveMarkerEl = document.getElementById("autoSaveMarker");
-const autoSaveScreenEl = document.getElementById("autoSaveScreen");
-const statusMarkerEl   = document.getElementById("statusMarker");
-const statusScreenEl   = document.getElementById("statusScreen");
-
-// Chrome storage 확인
-if (!chrome?.storage?.sync) {
-  console.error("[ERROR] chrome.storage.sync not available");
-}
-
 // Marker JSON 생성기
 const markerWidthEl = document.getElementById("markerWidth");
 const markerHeightEl = document.getElementById("markerHeight");
@@ -34,30 +24,6 @@ const screenClickActionTextEl = document.getElementById("screenClickActionText")
 const screenClickActionGroup = document.getElementById("screenClickActionGroup");
 const screenCopyBtn = document.getElementById("screenCopyBtn");
 const screenGenerator = document.getElementById("screenGenerator");
-
-// 저장된 설정 불러오기
-if (chrome?.storage?.sync) {
-  chrome.storage.sync.get({ autoSaveMarker: true, autoSaveScreen: true }, (data) => {
-    autoSaveMarkerEl.checked = data.autoSaveMarker;
-    autoSaveScreenEl.checked = data.autoSaveScreen;
-    updateStatusMarker(data.autoSaveMarker);
-    updateStatusScreen(data.autoSaveScreen);
-  });
-}
-
-// 마커 토글 변경 시 저장
-autoSaveMarkerEl.addEventListener("change", () => {
-  const autoSaveMarker = autoSaveMarkerEl.checked;
-  chrome.storage.sync.set({ autoSaveMarker });
-  updateStatusMarker(autoSaveMarker);
-});
-
-// 스크린 토글 변경 시 저장
-autoSaveScreenEl.addEventListener("change", () => {
-  const autoSaveScreen = autoSaveScreenEl.checked;
-  chrome.storage.sync.set({ autoSaveScreen });
-  updateStatusScreen(autoSaveScreen);
-});
 
 // Click Action 토글
 markerClickActionEl.addEventListener("change", () => {
@@ -132,6 +98,9 @@ screenCopyBtn.addEventListener("click", () => {
   const screenImageUrl = document.getElementById("screenImageUrl")?.value.trim();
   if (screenImageUrl) json.imageUrl = screenImageUrl;
 
+  const screenCoverImageUrl = document.getElementById("screenCoverImageUrl")?.value.trim();
+  if (screenCoverImageUrl) json.coverImageUrl = screenCoverImageUrl;
+
   const jsonStr = JSON.stringify(json);
   navigator.clipboard.writeText(jsonStr).then(() => {
     screenCopyBtn.textContent = "✓ 복사됨!";
@@ -142,26 +111,6 @@ screenCopyBtn.addEventListener("click", () => {
     }, 2000);
   });
 });
-
-function updateStatusMarker(autoSave) {
-  if (autoSave) {
-    statusMarkerEl.className = "status saved";
-    statusMarkerEl.textContent = "✓ 자동 저장 ON — 붙여넣기 후 즉시 완료됩니다";
-  } else {
-    statusMarkerEl.className = "status manual";
-    statusMarkerEl.textContent = "✎ 수동 저장 — 내용 확인 후 Save를 직접 누르세요";
-  }
-}
-
-function updateStatusScreen(autoSave) {
-  if (autoSave) {
-    statusScreenEl.className = "status saved";
-    statusScreenEl.textContent = "✓ 자동 저장 ON — 붙여넣기 후 즉시 완료됩니다";
-  } else {
-    statusScreenEl.className = "status manual";
-    statusScreenEl.textContent = "✎ 수동 저장 — 내용 확인 후 Save를 직접 누르세요";
-  }
-}
 
 // 탭 전환 (disabled 탭은 무시)
 document.querySelectorAll(".tab:not(.disabled)").forEach(tab => {
@@ -196,6 +145,93 @@ if (screenHeader) {
     screenHeader.querySelector("span").textContent = isCollapsed ? "▶ 생성기 펼치기" : "▼ 생성기 접기";
   });
 }
+
+// ── 기본값 설정 헤더 토글 ───────────────────────────────────────────────
+["marker", "screen"].forEach(type => {
+  const hdr = document.getElementById(`${type}DefaultsHeader`);
+  if (!hdr) return;
+  hdr.style.cursor = "pointer";
+  hdr.addEventListener("click", () => {
+    const sec = document.getElementById(`${type}Defaults`);
+    sec.classList.toggle("collapsed");
+    const collapsed = sec.classList.contains("collapsed");
+    hdr.querySelector("span").textContent = collapsed ? "▶ 기본값 설정 펼치기" : "▼ 기본값 설정 접기";
+  });
+});
+
+// ── 기본값 로드 · 저장 · 생성기 반영 ──────────────────────────────────
+const SYS = {
+  marker: { width: 2, height: 2, priority: 1, imageUrl: "", fixedPlacement: false, fixedSize: false },
+  screen: { width: 4, height: 4, priority: 1, imageUrl: "", coverImageUrl: "", fixedPlacement: false, fixedSize: false, asPlanePanel: false },
+};
+
+function applyGeneratorDefaults(type, saved) {
+  const sys = SYS[type];
+  const w   = (saved?.width    > 0) ? saved.width    : sys.width;
+  const h   = (saved?.height   > 0) ? saved.height   : sys.height;
+  const pr  = (saved?.priority > 0) ? saved.priority : sys.priority;
+  const img  = saved?.imageUrl      ?? "";
+  const cimg = saved?.coverImageUrl ?? "";
+  const fp   = saved?.fixedPlacement ?? false;
+  const fs   = saved?.fixedSize      ?? false;
+  const ap   = saved?.asPlanePanel   ?? false;
+
+  // 기본값 입력 필드
+  const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val; };
+  const setChk = (id, val) => { const el = document.getElementById(id); if (el) el.checked = val; };
+  set(`${type}DefaultWidth`,    (saved?.width    > 0) ? saved.width    : "");
+  set(`${type}DefaultHeight`,   (saved?.height   > 0) ? saved.height   : "");
+  set(`${type}DefaultPriority`, (saved?.priority > 0) ? saved.priority : "");
+  set(`${type}DefaultImageUrl`, img);
+  setChk(`${type}DefaultFixedPlacement`, fp);
+  setChk(`${type}DefaultFixedSize`,      fs);
+  if (type === "screen") {
+    set("screenDefaultCoverImageUrl", cimg);
+    setChk("screenDefaultAsPlanePanel", ap);
+  }
+
+  // 생성기 초기값
+  set(`${type}Width`,    w);
+  set(`${type}Height`,   h);
+  set(`${type}Priority`, pr);
+  set(`${type}ImageUrl`, img);
+  setChk(`${type}FixedPlacement`, fp);
+  setChk(`${type}FixedSize`,      fs);
+  if (type === "screen") {
+    set("screenCoverImageUrl", cimg);
+    setChk("screenAsPlanePanel", ap);
+  }
+}
+
+function saveAndApplyDefaults(type) {
+  const get    = (id) => document.getElementById(id);
+  const w   = parseInt(get(`${type}DefaultWidth`)?.value)    || 0;
+  const h   = parseInt(get(`${type}DefaultHeight`)?.value)   || 0;
+  const pr  = parseInt(get(`${type}DefaultPriority`)?.value) || 0;
+  const img  = get(`${type}DefaultImageUrl`)?.value  ?? "";
+  const cimg = get("screenDefaultCoverImageUrl")?.value ?? "";
+  const fp   = get(`${type}DefaultFixedPlacement`)?.checked ?? false;
+  const fs   = get(`${type}DefaultFixedSize`)?.checked      ?? false;
+  const ap   = get("screenDefaultAsPlanePanel")?.checked    ?? false;
+  const saved = { width: w, height: h, priority: pr, imageUrl: img, fixedPlacement: fp, fixedSize: fs,
+                  ...(type === "screen" ? { coverImageUrl: cimg, asPlanePanel: ap } : {}) };
+  chrome.storage.local.set({ [`${type}Defaults`]: saved });
+  applyGeneratorDefaults(type, saved);
+}
+
+// 팝업 열릴 때 기본값 로드
+chrome.storage.local.get(["markerDefaults", "screenDefaults"], (data) => {
+  applyGeneratorDefaults("marker", data.markerDefaults);
+  applyGeneratorDefaults("screen", data.screenDefaults);
+});
+
+// 기본값 변경 시 즉시 저장
+["Width", "Height", "Priority", "ImageUrl", "FixedPlacement", "FixedSize"].forEach(field => {
+  document.getElementById(`markerDefault${field}`)?.addEventListener("change", () => saveAndApplyDefaults("marker"));
+  document.getElementById(`screenDefault${field}`)?.addEventListener("change", () => saveAndApplyDefaults("screen"));
+});
+document.getElementById("screenDefaultCoverImageUrl")?.addEventListener("change", () => saveAndApplyDefaults("screen"));
+document.getElementById("screenDefaultAsPlanePanel")?.addEventListener("change", () => saveAndApplyDefaults("screen"));
 
 // =============================================
 // 즐겨찾기 (Favorites) 기능
@@ -303,6 +339,7 @@ async function renderFavTree() {
           return `
           <div class="fav-item" data-id="${escapeHtml(b.id)}" draggable="true">
             <span class="fav-item-type ${b.data?.type === "screen" ? "scr" : "mrk"}">${b.data?.type === "screen" ? "SCR" : "MRK"}</span>
+            ${b.data?.imageUrl ? `<img class="fav-item-thumb" src="${escapeHtml(b.data.imageUrl)}" onerror="this.style.display='none'" alt="">` : ""}
             <span class="fav-item-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
               <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
@@ -332,6 +369,10 @@ async function renderFavTree() {
             <textarea class="edit-memo-input">${escapeHtml(d.memo ?? "")}</textarea>
             <div class="fav-edit-label">IMAGE URL (선택)</div>
             <input class="edit-imageurl-input" type="text" placeholder="https://..." value="${escapeHtml(d.imageUrl ?? "")}">
+            ${d.type === "screen" ? `
+            <div class="fav-edit-label">COVER IMAGE URL (뒷면, 선택)</div>
+            <input class="edit-coverimageurl-input" type="text" placeholder="https://..." value="${escapeHtml(d.coverImageUrl ?? "")}">
+            ` : ""}
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Fixed Placement (위치 고정)</span>
               <input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}>
@@ -444,6 +485,8 @@ async function renderFavTree() {
         data.fixedPlacement = form.querySelector(".edit-fixed-placement")?.checked ?? false;
         data.fixedSize      = form.querySelector(".edit-fixed-size")?.checked      ?? false;
         if (data.type === "screen") {
+          const coverImageUrl = form.querySelector(".edit-coverimageurl-input")?.value.trim();
+          if (coverImageUrl) data.coverImageUrl = coverImageUrl; else delete data.coverImageUrl;
           data.asPlanePanel = form.querySelector(".edit-plane-panel")?.checked ?? false;
         }
         const clickAction = form.querySelector(".edit-click-action").value;
@@ -489,15 +532,51 @@ async function renderFavTree() {
       });
     }
 
-    // ── 드래그앤드롭: 항목 → 폴더 이동 ──
+    // ── 드래그앤드롭: 항목 순서 변경 및 폴더 이동 ──
     folderEl.querySelectorAll(".fav-item").forEach((item) => {
       item.addEventListener("dragstart", (e) => {
-        e.stopPropagation(); // 폴더 드래그와 구분
+        e.stopPropagation();
         e.dataTransfer.setData("bookmarkId", item.dataset.id);
         item.classList.add("dragging");
         console.log("[CcfoliaHelper] 항목 드래그 시작:", item.querySelector(".fav-item-name")?.textContent);
       });
-      item.addEventListener("dragend", () => item.classList.remove("dragging"));
+      item.addEventListener("dragend", () => {
+        item.classList.remove("dragging");
+        document.querySelectorAll(".drag-over, .drag-over-bottom")
+          .forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+      });
+      item.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("bookmarkid")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        document.querySelectorAll(".drag-over, .drag-over-bottom")
+          .forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+        const rect = item.getBoundingClientRect();
+        item.classList.add(e.clientY < rect.top + rect.height / 2 ? "drag-over" : "drag-over-bottom");
+      });
+      item.addEventListener("dragleave", (e) => {
+        if (!item.contains(e.relatedTarget))
+          item.classList.remove("drag-over", "drag-over-bottom");
+      });
+      item.addEventListener("drop", async (e) => {
+        item.classList.remove("drag-over", "drag-over-bottom");
+        const bookmarkId = e.dataTransfer.getData("bookmarkId");
+        if (!bookmarkId || bookmarkId === item.dataset.id) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const d = await getFavData();
+        const fromIdx = d.bookmarks.findIndex(b => b.id === bookmarkId);
+        const toIdx = d.bookmarks.findIndex(b => b.id === item.dataset.id);
+        if (fromIdx === -1 || toIdx === -1) return;
+        const rect = item.getBoundingClientRect();
+        const insertBefore = e.clientY < rect.top + rect.height / 2;
+        const [moved] = d.bookmarks.splice(fromIdx, 1);
+        moved.folderId = d.bookmarks[d.bookmarks.findIndex(b => b.id === item.dataset.id)].folderId;
+        const newToIdx = d.bookmarks.findIndex(b => b.id === item.dataset.id);
+        d.bookmarks.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
+        await saveFavData(d);
+        renderFavTree();
+      });
     });
 
     // ── 폴더 순서 드래그앤드롭 ──
@@ -516,20 +595,16 @@ async function renderFavTree() {
         .forEach(el => el.classList.remove("folder-drag-over-top", "folder-drag-over-bottom"));
     });
     folderEl.addEventListener("dragover", (e) => {
-      // 항목 드래그 중이면 폴더 드롭 처리 (기존 로직)
-      if (e.dataTransfer.types.includes("bookmarkid")) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "move";
-      // 마우스 위치로 위/아래 판단
+      // 항목 드래그 중이면 폴더 순서 표시 없이 드롭만 허용
+      if (e.dataTransfer.types.includes("bookmarkid")) return;
+      // 폴더 순서 변경: 마우스 위치로 위/아래 판단
       const rect = folderEl.getBoundingClientRect();
       const mid = rect.top + rect.height / 2;
       document.querySelectorAll(".folder-drag-over-top, .folder-drag-over-bottom")
         .forEach(el => el.classList.remove("folder-drag-over-top", "folder-drag-over-bottom"));
-      if (e.clientY < mid) {
-        folderEl.classList.add("folder-drag-over-top");
-      } else {
-        folderEl.classList.add("folder-drag-over-bottom");
-      }
+      folderEl.classList.add(e.clientY < mid ? "folder-drag-over-top" : "folder-drag-over-bottom");
     });
     folderEl.addEventListener("dragleave", (e) => {
       if (!folderEl.contains(e.relatedTarget)) {
@@ -690,6 +765,8 @@ function buildScreenJson() {
   if (ca && ca !== "none") { json.clickAction = ca; json.clickActionText = document.getElementById("screenClickActionText")?.value || ""; }
   const imageUrl = document.getElementById("screenImageUrl")?.value.trim();
   if (imageUrl) json.imageUrl = imageUrl;
+  const coverImageUrl = document.getElementById("screenCoverImageUrl")?.value.trim();
+  if (coverImageUrl) json.coverImageUrl = coverImageUrl;
   return json;
 }
 

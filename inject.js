@@ -113,13 +113,59 @@
   setTimeout(() => { if (!authToken) { tryFirebaseV8(); tryLocalStorage(); } }, 3000);
 
   // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
+  const PX_PER_GRID = 24; // 1그리드 = 24px (ccfolia 고정값)
   let _contextPanelCache = null;
+  let _cachedReduxStore  = null; // Redux store 캐시 (fiber walk 중 발견 시 저장)
+
+  /** 주어진 뷰포트 좌표에 해당하는 첫 번째 .movable 요소를 반환 */
+  function _findMovableAtCoords(clientX, clientY) {
+    for (const el of document.querySelectorAll(".movable")) {
+      const r = el.getBoundingClientRect();
+      if (clientX >= r.left && clientX <= r.right &&
+          clientY >= r.top  && clientY <= r.bottom) return el;
+    }
+    return null;
+  }
 
   document.addEventListener("contextmenu", (e) => {
     _contextPanelCache = null;
     try {
       console.log("[CCFHelper:ctx] contextmenu target:", e.target.tagName, e.target.className?.slice?.(0, 60));
-      _contextPanelCache = _extractPanelFromEl(e.target);
+
+      // 1차: 이벤트 타겟에서 직접 추출
+      let data = _extractPanelFromEl(e.target);
+
+      // 2차: elementsFromPoint — 뒷면 등 오버레이가 e.target을 가릴 때
+      if (!data && document.elementsFromPoint) {
+        const els = document.elementsFromPoint(e.clientX, e.clientY);
+        for (const el of els) {
+          if (el === e.target || el === document.body || el === document.documentElement) continue;
+          data = _extractPanelFromEl(el);
+          if (data) {
+            console.log("[CCFHelper:ctx] elementsFromPoint hit:", el.tagName, String(el.className).slice(0, 40));
+            break;
+          }
+        }
+      }
+
+      // 3·4차: .movable 좌표 hit-test — 뒷면 포탈 오버레이 케이스
+      // (오버레이가 .movable DOM 트리 밖 포탈이라 elementsFromPoint가 .movable을 반환 못할 때)
+      if (!data) {
+        const movable = _findMovableAtCoords(e.clientX, e.clientY);
+        if (movable) {
+          // 3차: DOM 속성 / fiber walk
+          data = _extractFromDom(movable) || _extractPanelFromEl(movable);
+          if (data) {
+            console.log("[CCFHelper:ctx] .movable hit-test success:", data.memo?.slice(0, 20));
+          } else if (_cachedReduxStore) {
+            // 4차: Redux store 직접 탐색
+            // (뒷면 포탈이 Room 레벨이라 fiber chain에 패널 컴포넌트 없음)
+            data = _findPanelInRedux(movable);
+          }
+        }
+      }
+
+      _contextPanelCache = data;
       console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
     } catch (err) {
       console.warn("[CCFHelper:ctx] extraction error:", err);
@@ -148,19 +194,32 @@
   function _extractFromDom(el) {
     let text = "";
     let movableEl = null;
+    let isScreen = false;
 
-    // ─── 1차: data-dragging 컨테이너 (스크린 패널)
+    // non-empty aria-label을 가진 첫 요소의 값 반환
+    function _firstLabel(root) {
+      for (const c of root.querySelectorAll("[aria-label]")) {
+        const v = c.getAttribute("aria-label") || "";
+        if (v) return v;
+      }
+      return "";
+    }
+
+    // ─── 1차: data-dragging 컨테이너 → 스크린 패널
     let panelEl = el;
     for (let i = 0; i < 12 && panelEl && panelEl !== document.documentElement; i++) {
       if (panelEl.dataset && panelEl.dataset.dragging !== undefined) break;
       panelEl = panelEl.parentElement;
     }
     if (panelEl && panelEl.dataset?.dragging !== undefined) {
+      isScreen = true;
       text = panelEl.getAttribute("aria-label") || "";
       movableEl = panelEl.closest?.(".movable");
+      // 뒷면 등에서 aria-label이 비어있으면 .movable 내 non-empty 값 탐색
+      if (!text && movableEl) text = _firstLabel(movableEl);
     }
 
-    // ─── 2차: .movable + 자식 [aria-label] (마커 패널 — data-dragging 없음)
+    // ─── 2차: .movable 조상(또는 자기 자신) 탐색 → 마커/스크린 패널
     if (!text) {
       let node = el;
       for (let i = 0; i < 12 && node && node !== document.documentElement; i++) {
@@ -169,35 +228,43 @@
       }
       if (node?.classList?.contains("movable")) {
         movableEl = node;
-        // draggable 버튼 안의 첫 번째 의미있는 aria-label 탐색
-        const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
-        const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
-        text = labelEl?.getAttribute("aria-label") || "";
+        // 스크린 패널: .movable 안에 [data-dragging] 자식이 있으면 스크린
+        const dataDraggingChild = movableEl.querySelector("[data-dragging]");
+        if (dataDraggingChild) {
+          isScreen = true;
+          text = dataDraggingChild.getAttribute("aria-label") || "";
+        }
+        // 마커 패널 (또는 스크린에서 aria-label 못 찾은 경우)
+        if (!text) {
+          const draggable = movableEl.querySelector('[aria-roledescription="draggable"]');
+          const labelEl = draggable?.querySelector("[aria-label]") ?? movableEl.querySelector("[aria-label]");
+          text = labelEl?.getAttribute("aria-label") || "";
+          if (!text) text = _firstLabel(movableEl);
+        }
       }
     }
 
     if (!text || !movableEl) return null;
 
-    // imageUrl: 패널 안의 img 태그
-    const img = movableEl.querySelector("img");
-    const imageUrl = img?.src || undefined;
+    // imageUrl: 패널 안의 첫 번째 img 태그
+    const imageUrl = movableEl.querySelector("img")?.src || undefined;
 
     // width / height / z: .movable 인라인 style
     const width  = parseFloat(movableEl.style.width)  || 0;
     const height = parseFloat(movableEl.style.height) || 0;
     const z      = parseInt(movableEl.style.zIndex)   || 1;
 
-    const PX_PER_GRID = 24;
     const result = {
-      type: imageUrl ? "card" : "marker",
+      type: isScreen ? "screen" : "marker",
       memo: text,
-      width:           width  ? Math.round(width  / PX_PER_GRID) : 2,
-      height:          height ? Math.round(height / PX_PER_GRID) : 2,
+      width:           width  ? Math.round(width  / PX_PER_GRID) : (isScreen ? 4 : 2),
+      height:          height ? Math.round(height / PX_PER_GRID) : (isScreen ? 4 : 2),
       overlapPriority: z,
       fixedPlacement:  false,
       fixedSize:       false,
       clickAction:     "none",
     };
+    if (isScreen) result.asPlanePanel = false;
     if (imageUrl) result.imageUrl = imageUrl;
 
     console.log("[CCFHelper:ctx] DOM extraction success:", result);
@@ -231,17 +298,32 @@
         console.log(`[CCFHelper:fiber] dom=${domDepth} f=${i} [${keys.slice(0,10).join(",")}]`, sample);
       }
 
-      // ── memoizedState 덤프 (hook state / Redux useSelector 결과) ──
-      if (i < 20) {
+      // ── Redux Provider 감지 → store 캐시 ──────────────────────────────
+      // fiber chain에는 항상 Redux Provider가 포함되므로 한 번만 캐시하면 됨
+      if (!_cachedReduxStore) {
+        const val = fiber.memoizedProps?.value;
+        if (val?.store?.getState) {
+          _cachedReduxStore = val.store;
+          console.log("[CCFHelper:redux] Redux store cached ✓");
+        }
+      }
+
+      // ── memoizedState 덤프 + 매칭 (hook state / Redux useSelector 결과) ──
+      // ccfolia는 useSelector로 Redux에서 패널 데이터를 가져오므로
+      // memoizedProps가 아닌 memoizedState(hook state)에 데이터가 있을 수 있음
+      {
         let hs = fiber.memoizedState;
         let hi = 0;
         while (hs && hi < 8) {
           const sv = hs.memoizedState;
           if (sv && typeof sv === "object" && !Array.isArray(sv)) {
             const skeys = Object.keys(sv);
-            if (skeys.length > 1) {
+            if (i < 20 && skeys.length > 1) {
               console.log(`[CCFHelper:hookState] dom=${domDepth} f=${i} hook=${hi} [${skeys.slice(0,8).join(",")}]`, sv);
             }
+            // memoizedState 값도 패널 데이터로 매칭 시도
+            const r = _matchProps(sv, domDepth, i);
+            if (r) return r;
           }
           hs = hs.next; hi++;
         }
@@ -270,13 +352,69 @@
       console.log(`[CCFHelper:match] SCREEN hit at dom=${domDepth} fiber=${fiberDepth}`, props);
       return _buildData("screen", props.memo, props);
     }
-    // 중첩 객체 탐색
-    for (const k of ["marker", "item", "panel", "data", "value"]) {
+    // 중첩 객체 탐색 ("current" = useRef hook state 대응)
+    for (const k of ["marker", "item", "panel", "data", "value", "current"]) {
       const v = props[k];
       if (v && typeof v === "object" && !Array.isArray(v)) {
         const r = _matchProps(v, domDepth, fiberDepth);
         if (r) return r;
       }
+    }
+    return null;
+  }
+
+  /** Redux store에서 패널 객체를 탐색해 _buildData로 반환 */
+  function _findPanelInRedux(targetMovable) {
+    if (!_cachedReduxStore || !targetMovable) return null;
+    try {
+      const state = _cachedReduxStore.getState();
+
+      // .movable 식별 정보 (imageUrl, 크기, z)
+      const imgSrc = targetMovable.querySelector("img")?.src || "";
+      const gw = Math.round((parseFloat(targetMovable.style.width)  || 0) / PX_PER_GRID);
+      const gh = Math.round((parseFloat(targetMovable.style.height) || 0) / PX_PER_GRID);
+      const gz = parseInt(targetMovable.style.zIndex) || 1;
+
+      // Redux state에서 패널 객체 재귀 수집 (depth 5, 순환참조 없는 JSON state 가정)
+      const panels = [];
+      const _seen = new Set();
+      function collectPanels(obj, depth) {
+        if (depth > 5 || !obj || typeof obj !== "object" || _seen.has(obj)) return;
+        _seen.add(obj);
+        if (Array.isArray(obj)) { for (const v of obj) collectPanels(v, depth + 1); return; }
+        if (typeof obj.memo === "string" && obj.memo.trim() && obj.width != null && obj.height != null) {
+          panels.push(obj); return;
+        }
+        for (const v of Object.values(obj)) {
+          if (v && typeof v === "object") collectPanels(v, depth + 1);
+        }
+      }
+      collectPanels(state, 0);
+
+      console.log("[CCFHelper:redux] panels:", panels.length,
+        "| imgSrc:", imgSrc.slice(0, 60), "| size:", gw, "×", gh, "z:", gz);
+
+      if (panels.length === 0) return null;
+
+      // 1순위: imageUrl / coverImageUrl 매칭 (가장 정확)
+      if (imgSrc) {
+        const byImg = panels.find(p => p.imageUrl === imgSrc || p.coverImageUrl === imgSrc);
+        if (byImg) {
+          console.log("[CCFHelper:redux] matched by imageUrl:", byImg.memo);
+          return _buildData("screen", byImg.memo, byImg);
+        }
+      }
+      // 2순위: width × height × z 단독 후보
+      const bySize = gw > 0
+        ? panels.filter(p => p.width === gw && p.height === gh && (p.z === gz || p.overlapPriority === gz))
+        : [];
+      if (bySize.length === 1) {
+        console.log("[CCFHelper:redux] matched by size:", bySize[0].memo);
+        return _buildData("screen", bySize[0].memo, bySize[0]);
+      }
+      console.log("[CCFHelper:redux] no unique match — by-size candidates:", bySize.length);
+    } catch (err) {
+      console.warn("[CCFHelper:redux] lookup error:", err);
     }
     return null;
   }
@@ -294,7 +432,8 @@
       clickActionText: "",
     };
     if (type === "screen") d.asPlanePanel = Boolean(props.asPlanePanel ?? false);
-    if (props.imageUrl) d.imageUrl = props.imageUrl;
+    if (props.imageUrl)      d.imageUrl      = props.imageUrl;
+    if (props.coverImageUrl) d.coverImageUrl = props.coverImageUrl;
     // clickAction 파싱
     const ca = props.clickAction;
     if (ca && typeof ca === "object" && ca.type === "message") {
@@ -418,8 +557,8 @@
       ownerColor:    { nullValue: "NULL_VALUE" },
       ownerName:     { nullValue: "NULL_VALUE" },
       memo:          { stringValue: d.memo },
-      imageUrl:      d.imageUrl ? { stringValue: d.imageUrl } : { nullValue: "NULL_VALUE" },
-      coverImageUrl: { nullValue: "NULL_VALUE" },
+      imageUrl:      d.imageUrl      ? { stringValue: d.imageUrl }      : { nullValue: "NULL_VALUE" },
+      coverImageUrl: d.coverImageUrl ? { stringValue: d.coverImageUrl } : { nullValue: "NULL_VALUE" },
       clickAction:   d.clickAction === "sendToChat"
         ? { mapValue: { fields: {
             type: { stringValue: "message" },

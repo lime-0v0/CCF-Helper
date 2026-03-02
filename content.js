@@ -54,6 +54,7 @@ function parseJson(raw) {
     overlapPriority: data.overlapPriority ?? 1,
     memo:            String(data.memo),
     imageUrl:        data.imageUrl        ?? null,
+    coverImageUrl:   data.coverImageUrl   ?? null,
     fixedPlacement:  data.fixedPlacement  ?? false,
     fixedSize:       data.fixedSize       ?? false,
     asPlanePanel:    data.asPlanePanel    ?? false,
@@ -65,13 +66,6 @@ function parseJson(raw) {
 function getDialog(panelType = "Marker panel settings") {
   return [...document.querySelectorAll("[role='dialog']")]
     .find((el) => el.textContent.includes(panelType));
-}
-
-async function getSettings(panelType) {
-  return new Promise((resolve) => {
-    const key = panelType === "screen" ? "autoSaveScreen" : "autoSaveMarker";
-    chrome.storage.sync.get({ [key]: true }, (data) => resolve({ autoSave: data[key] }));
-  });
 }
 
 // ── API 방식: inject.js에 메시지 → Firestore REST API ────────────────
@@ -103,7 +97,8 @@ function createPanelViaAPI(panelData) {
   });
 }
 
-// ── DOM 방식 (GM 전용 버튼 필요 / 폴백) ─────────────────────────────
+// ── DOM 방식 (GM 전용 버튼 필요 / 폴백) — 현재 미사용, API 전용 운영 ──
+/*
 async function createPanelViaDOM(panelData) {
   const isScreen = panelData.type === "screen";
   const listName = isScreen ? "Screen panel list" : "Marker panel list";
@@ -228,42 +223,27 @@ async function createPanelViaDOM(panelData) {
     }
   }
 
-  // STEP 7: 저장
-  const { autoSave } = await getSettings(panelData.type);
-  if (autoSave) {
-    await wait(50);
-    const saveBtn = await waitFor(() =>
-      [...document.querySelectorAll("button")].find(
-        (btn) => btn.textContent.trim() === "Save" && btn.getBoundingClientRect().width > 0
-      ), 1000
-    );
-    if (saveBtn) {
-      saveBtn.click();
-      console.log(`[CcfoliaHelper] ✅ DOM 방식 저장 완료 (${isScreen ? "Screen" : "Marker"})`);
-    } else {
-      console.warn("[CcfoliaHelper] Save 버튼 못 찾음 - 수동 저장 필요");
-    }
+  // STEP 7: Save 버튼 클릭
+  await wait(50);
+  const saveBtn = await waitFor(() =>
+    [...document.querySelectorAll("button")].find(
+      (btn) => btn.textContent.trim() === "Save" && btn.getBoundingClientRect().width > 0
+    ), 1000
+  );
+  if (saveBtn) {
+    saveBtn.click();
+    console.log(`[CcfoliaHelper] ✅ DOM 방식 저장 완료 (${isScreen ? "Screen" : "Marker"})`);
   } else {
-    console.log(`[CcfoliaHelper] ✅ DOM 방식 입력 완료 - 수동 저장 모드`);
+    console.warn("[CcfoliaHelper] Save 버튼 못 찾음 - 수동 저장 필요");
   }
 }
+*/
 
-// ── 메인: API 우선, 실패 시 DOM 폴백 ─────────────────────────────────
+// ── 메인: API 전용 ────────────────────────────────────────────────────
 async function createPanel(panelData) {
   const label = panelData.type === "screen" ? "Screen panel" : "Marker panel";
-  try {
-    await createPanelViaAPI(panelData);
-    console.log(`[CcfoliaHelper] ✅ ${label} 생성 완료 (API)`);
-  } catch (e) {
-    if (e.message === "AUTH_TOKEN_NOT_CAPTURED") {
-      console.warn("[CcfoliaHelper] 토큰 미확보 → DOM 방식으로 폴백");
-    } else if (e.message === "ROOM_ID_NOT_FOUND") {
-      console.warn("[CcfoliaHelper] roomId 없음 → DOM 방식으로 폴백");
-    } else {
-      console.warn(`[CcfoliaHelper] API 실패 (${e.message}) → DOM 방식으로 폴백`);
-    }
-    await createPanelViaDOM(panelData);
-  }
+  await createPanelViaAPI(panelData);
+  console.log(`[CcfoliaHelper] ✅ ${label} 생성 완료 (API)`);
 }
 
 // ── popup에서 오는 메시지 수신 ────────────────────────────────────────
