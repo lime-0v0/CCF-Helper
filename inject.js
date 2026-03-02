@@ -144,7 +144,13 @@
           const rect = movable.getBoundingClientRect();
           if (e.clientX >= rect.left && e.clientX <= rect.right &&
               e.clientY >= rect.top  && e.clientY <= rect.bottom) {
+            // 먼저 DOM 속성(aria-label 등)에서 추출 시도
             data = _extractFromDom(movable);
+            if (!data) {
+              // DOM 실패 시 fiber walk 시도 (aria-label이 빈 뒷면 케이스)
+              // .movable 자체의 fiber.return을 통해 패널 컴포넌트까지 올라감
+              data = _extractPanelFromEl(movable);
+            }
             if (data) {
               console.log("[CCFHelper:ctx] .movable hit-test success:", data.memo?.slice(0, 20));
               break;
@@ -288,17 +294,22 @@
         console.log(`[CCFHelper:fiber] dom=${domDepth} f=${i} [${keys.slice(0,10).join(",")}]`, sample);
       }
 
-      // ── memoizedState 덤프 (hook state / Redux useSelector 결과) ──
-      if (i < 20) {
+      // ── memoizedState 덤프 + 매칭 (hook state / Redux useSelector 결과) ──
+      // ccfolia는 useSelector로 Redux에서 패널 데이터를 가져오므로
+      // memoizedProps가 아닌 memoizedState(hook state)에 데이터가 있을 수 있음
+      {
         let hs = fiber.memoizedState;
         let hi = 0;
         while (hs && hi < 8) {
           const sv = hs.memoizedState;
           if (sv && typeof sv === "object" && !Array.isArray(sv)) {
             const skeys = Object.keys(sv);
-            if (skeys.length > 1) {
+            if (i < 20 && skeys.length > 1) {
               console.log(`[CCFHelper:hookState] dom=${domDepth} f=${i} hook=${hi} [${skeys.slice(0,8).join(",")}]`, sv);
             }
+            // memoizedState 값도 패널 데이터로 매칭 시도
+            const r = _matchProps(sv, domDepth, i);
+            if (r) return r;
           }
           hs = hs.next; hi++;
         }
