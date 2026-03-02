@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "Ccfolia Helper",
-  "version": "1.1.0",
-  "description": "Ccfolia 마커 패널 자동 생성 도우미",
+  "version": "1.2.0",
+  "description": "Ccfolia 마커/스크린 패널 생성 도우미",
   "permissions": [
     "clipboardRead",
     "storage",

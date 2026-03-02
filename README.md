@@ -1,7 +1,7 @@
 # Ccfolia Helper
 
 ccfolia.com 방에서 마커/스크린 패널을 빠르게 생성할 수 있는 크롬 확장 프로그램입니다.
-JSON 붙여넣기, 팝업 생성기, 즐겨찾기 기능을 제공합니다.
+JSON 붙여넣기, 팝업 생성기, 즐겨찾기, 우클릭 캡처 기능을 제공합니다.
 
 ---
 
@@ -33,11 +33,21 @@ ccfolia 방 화면(`https://ccfolia.com/rooms/...`)에서 **입력창 밖**(맵 
 자주 쓰는 패널을 즐겨찾기에 저장해두고 ▶ 버튼으로 바로 생성할 수 있습니다.
 폴더 단위로 관리하며, 전체 내보내기/불러오기(JSON)도 지원합니다.
 
+- ✏️ 편집 버튼으로 이름·크기·이미지 URL 등을 수정할 수 있습니다.
+- 스크린 패널의 경우 **Cover Image URL(뒷면 이미지)** 도 편집 가능합니다.
+
 ### 4. 우클릭으로 즐겨찾기 추가
 
 ccfolia 맵 위의 **마커/스크린 패널**을 우클릭하면 컨텍스트 메뉴 상단에 **[CCF Helper] 즐겨찾기에 추가** 항목이 표시됩니다.
 클릭하면 해당 패널이 즐겨찾기 기본 폴더에 즉시 저장됩니다.
-※ 캐릭터(피스)를 우클릭할 때는 해당 항목이 표시되지 않습니다.
+
+- **앞면·뒷면 모두 지원합니다.** 카드덱 등으로 뒤집힌 패널도 우클릭으로 캡처됩니다.
+- ※ 캐릭터(피스)를 우클릭할 때는 해당 항목이 표시되지 않습니다.
+
+### 5. 기본값 설정
+
+팝업 생성기의 **기본값 설정** 섹션에서 크기·이미지 URL·각종 옵션의 초기값을 저장할 수 있습니다.
+다음 번 팝업을 열었을 때 저장한 값이 자동으로 채워집니다.
 
 ---
 
@@ -69,7 +79,8 @@ ccfolia 맵 위의 **마커/스크린 패널**을 우클릭하면 컨텍스트 �
   "width": 4,
   "height": 4,
   "overlapPriority": 1,
-  "imageUrl": "https://example.com/image.png",
+  "imageUrl": "https://example.com/front.png",
+  "coverImageUrl": "https://example.com/back.png",
   "fixedPlacement": false,
   "fixedSize": false,
   "asPlanePanel": false,
@@ -87,7 +98,8 @@ ccfolia 맵 위의 **마커/스크린 패널**을 우클릭하면 컨텍스트 �
 | width | 선택 | 마커 2 / 스크린 4 | 폭 |
 | height | 선택 | 마커 2 / 스크린 4 | 높이 |
 | overlapPriority | 선택 | `1` | 겹침 우선도 |
-| imageUrl | 선택 | `null` | 패널에 표시할 이미지 URL |
+| imageUrl | 선택 | `null` | 패널 앞면 이미지 URL |
+| coverImageUrl | 선택 | `null` | 패널 뒷면 이미지 URL (스크린 전용) |
 | fixedPlacement | 선택 | `false` | `true`이면 위치 고정 |
 | fixedSize | 선택 | `false` | `true`이면 크기 고정 |
 | asPlanePanel | 선택 | `false` | `true`이면 단축키 비활성화 (스크린 전용) |
@@ -110,3 +122,23 @@ ccfolia 맵 위의 **마커/스크린 패널**을 우클릭하면 컨텍스트 �
 
 - **입력창 안**에서 붙여넣기하면 동작하지 않습니다 (일반 타이핑 방해 안 함).
 - JSON 형식이 아니거나 `memo` 필드가 없으면 동작하지 않습니다.
+
+---
+
+## 변경 이력
+
+### v1.2.0
+- 스크린 패널 `coverImageUrl`(뒷면 이미지) 지원 추가
+- 즐겨찾기 편집 폼에 Cover Image URL 필드 추가 (스크린 패널)
+- 우클릭 즐겨찾기 캡처: 뒷면(back-face)으로 뒤집힌 패널도 지원
+- 기본값 설정에 Fixed Placement / Fixed Size / Plane Panel / Cover Image URL 항목 추가
+
+### v1.1.0
+- 즐겨찾기 기능 추가 (폴더 관리, 내보내기/불러오기)
+- 우클릭 컨텍스트 메뉴로 패널 즐겨찾기 추가 기능
+- 생성기 기본값 설정 추가
+
+### v1.0.0
+- 최초 릴리스
+- JSON 붙여넣기로 마커/스크린 패널 생성
+- 팝업 생성기
