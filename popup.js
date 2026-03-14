@@ -372,7 +372,6 @@ async function renderFavTree() {
             <span class="fav-item-name" data-json='${escapeHtml(JSON.stringify(b.data))}' title="클릭하여 JSON 복사 | ${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
               <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
-              <button class="fav-setdefault-btn" data-type="${b.data?.type === 'screen' ? 'screen' : 'marker'}" data-json='${escapeHtml(JSON.stringify(b.data))}' title="기본값으로 설정">기본값</button>
               <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✏️</button>
               <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">🗑</button>
             </div>
@@ -424,6 +423,7 @@ async function renderFavTree() {
               <div class="fav-edit-label">CLICK ACTION TEXT</div>
               <textarea class="edit-click-action-text">${escapeHtml(caText)}</textarea>
             </div>
+            <button class="fav-edit-btn fav-setdefault-btn" data-type="${b.data?.type === 'screen' ? 'screen' : 'marker'}" data-json='${escapeHtml(JSON.stringify(b.data))}' title="이 항목의 값을 생성기 기본값으로 저장">기본값으로 설정</button>
             <div class="fav-edit-btns">
               <button class="fav-edit-btn cancel-edit-btn">취소</button>
               <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
@@ -481,8 +481,8 @@ async function renderFavTree() {
         };
         chrome.storage.local.set({ [`${type}Defaults`]: saved });
         applyGeneratorDefaults(type, saved);
-        btn.textContent = "✓";
-        setTimeout(() => (btn.textContent = "기본값"), 1500);
+        btn.textContent = "✓ 설정됨";
+        setTimeout(() => (btn.textContent = "기본값으로 설정"), 1500);
       });
     });
 
