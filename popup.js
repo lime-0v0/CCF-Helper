@@ -1,3 +1,22 @@
+// ── 팝업 토스트 ─────────────────────────────
+function showPopupToast(msg) {
+  const existing = document.getElementById("popup-toast");
+  if (existing) existing.remove();
+  const t = document.createElement("div");
+  t.id = "popup-toast";
+  t.textContent = msg;
+  t.style.cssText = [
+    "position:fixed", "bottom:10px", "left:50%", "transform:translateX(-50%)",
+    "background:#1b5e20", "color:#fff", "padding:7px 14px",
+    "border-radius:5px", "font-size:11px", "font-family:inherit",
+    "box-shadow:0 2px 8px rgba(0,0,0,.6)", "pointer-events:none",
+    "white-space:nowrap", "z-index:9999",
+    "animation:toast-in .15s ease",
+  ].join(";");
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1800);
+}
+
 // Marker JSON 생성기
 const markerWidthEl = document.getElementById("markerWidth");
 const markerHeightEl = document.getElementById("markerHeight");
@@ -440,6 +459,7 @@ async function renderFavTree() {
         navigator.clipboard.writeText(span.dataset.json).then(() => {
           span.classList.add("copied-flash");
           setTimeout(() => span.classList.remove("copied-flash"), 1200);
+          showPopupToast("복사되었습니다!");
         });
       });
     });
