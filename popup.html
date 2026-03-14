@@ -466,18 +466,24 @@
     transition: color 0.15s;
   }
   .fav-run-btn:hover { color: #00e676; }
+  /* 편집 버튼: amber (수정 의미) */
+  .fav-edit-btn-trigger:hover { color: #ffa726 !important; }
   .fav-run-all-btn {
-    font-size: 11px;
+    font-size: 13px;
     background: none;
     border: 1px solid #1a5a2a;
     border-radius: 3px;
     color: #00c853;
     cursor: pointer;
     padding: 1px 5px;
+    line-height: 1;
     transition: background 0.15s, color 0.15s;
   }
   .fav-run-all-btn:hover { background: #1a4a2a; color: #00e676; }
   .fav-run-all-btn:disabled { color: #333; border-color: #2a2a2a; cursor: default; }
+  /* 폴더 버튼별 개별 hover 색 */
+  .del-folder-btn:hover { color: #ef5350 !important; }
+  .fav-export-folder-btn:hover { color: #ccc !important; }
 
 
   /* ── 편집 인라인 폼 ── */

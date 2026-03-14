@@ -354,7 +354,7 @@ async function renderFavTree() {
         <span class="fav-folder-arrow">▶</span>
         <span class="fav-folder-name">📁 ${escapeHtml(folder.name)}</span>
         <div class="fav-folder-actions">
-          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 실행" ${folderItems.length === 0 ? "disabled" : ""}>전체 생성</button>
+          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 생성" ${folderItems.length === 0 ? "disabled" : ""}>▶</button>
           <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="내보내기">⤴</button>
           ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">✕</button>` : ""}
         </div>
