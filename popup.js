@@ -354,9 +354,9 @@ async function renderFavTree() {
         <span class="fav-folder-arrow">▶</span>
         <span class="fav-folder-name">📁 ${escapeHtml(folder.name)}</span>
         <div class="fav-folder-actions">
-          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 실행" ${folderItems.length === 0 ? "disabled" : ""}>▶▶ 전체</button>
-          <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 내보내기">⬆</button>
-          ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">🗑</button>` : ""}
+          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 실행" ${folderItems.length === 0 ? "disabled" : ""}>전체 생성</button>
+          <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="내보내기">⤴</button>
+          ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">✕</button>` : ""}
         </div>
       </div>
       <div class="fav-items">
@@ -372,8 +372,8 @@ async function renderFavTree() {
             <span class="fav-item-name" data-json='${escapeHtml(JSON.stringify(b.data))}' title="클릭하여 JSON 복사 | ${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
               <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
-              <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✏️</button>
-              <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">🗑</button>
+              <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✎</button>
+              <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">✕</button>
             </div>
           </div>
           <div class="fav-edit-form" id="edit-form-${escapeHtml(b.id)}">
@@ -403,16 +403,16 @@ async function renderFavTree() {
             ` : ""}
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Fixed Placement (위치 고정)</span>
-              <input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}>
+              <label class="toggle"><input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
             </div>
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Fixed Size (크기 고정)</span>
-              <input class="edit-fixed-size" type="checkbox" ${d.fixedSize ? "checked" : ""}>
+              <label class="toggle"><input class="edit-fixed-size" type="checkbox" ${d.fixedSize ? "checked" : ""}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
             </div>
             ${d.type === "screen" ? `
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Plane Panel</span>
-              <input class="edit-plane-panel" type="checkbox" ${d.asPlanePanel ? "checked" : ""}>
+              <label class="toggle"><input class="edit-plane-panel" type="checkbox" ${d.asPlanePanel ? "checked" : ""}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
             </div>` : ""}
             <div class="fav-edit-label">CLICK ACTION</div>
             <select class="edit-click-action">
@@ -423,10 +423,12 @@ async function renderFavTree() {
               <div class="fav-edit-label">CLICK ACTION TEXT</div>
               <textarea class="edit-click-action-text">${escapeHtml(caText)}</textarea>
             </div>
-            <button class="fav-edit-btn fav-setdefault-btn" data-type="${b.data?.type === 'screen' ? 'screen' : 'marker'}" data-json='${escapeHtml(JSON.stringify(b.data))}' title="이 항목의 값을 생성기 기본값으로 저장">기본값으로 설정</button>
             <div class="fav-edit-btns">
-              <button class="fav-edit-btn cancel-edit-btn">취소</button>
-              <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
+              <button class="fav-setdefault-btn" data-type="${b.data?.type === 'screen' ? 'screen' : 'marker'}" data-json='${escapeHtml(JSON.stringify(b.data))}' title="이 항목의 값을 생성기 기본값으로 저장">기본값으로 설정</button>
+              <div class="fav-edit-btns-right">
+                <button class="fav-edit-btn cancel-edit-btn">취소</button>
+                <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
+              </div>
             </div>
           </div>
           `;
