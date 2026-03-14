@@ -356,6 +356,10 @@
     color: #ce93d8;
     border: 1px solid rgba(206, 147, 216, 0.3);
   }
+  .fav-item-name { cursor: pointer; }
+  .fav-item-name:hover { color: #fff; text-decoration: underline dotted; }
+  .fav-item-name.copied-flash { color: #00c853 !important; }
+
   .fav-item-actions { display: flex; gap: 3px; }
   .fav-item-actions button {
     background: none;
@@ -366,7 +370,16 @@
     padding: 0 2px;
   }
   .fav-item-actions button:hover { color: #ef5350; }
-  .fav-copy-btn:hover { color: #00c853 !important; }
+  .fav-setdefault-btn {
+    font-size: 9px !important;
+    color: #888 !important;
+    border: 1px solid #333 !important;
+    border-radius: 3px !important;
+    padding: 1px 4px !important;
+    background: #222 !important;
+    line-height: 1.4 !important;
+  }
+  .fav-setdefault-btn:hover { color: #F7E987 !important; border-color: #F7E987 !important; background: #1a1a10 !important; }
   .fav-run-btn { color: #00c853 !important; }
   .fav-run-btn:hover { color: #00e676 !important; }
 

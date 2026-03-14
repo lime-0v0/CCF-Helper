@@ -350,10 +350,10 @@ async function renderFavTree() {
           <div class="fav-item" data-id="${escapeHtml(b.id)}" draggable="true">
             <span class="fav-item-type ${b.data?.type === "screen" ? "scr" : "mrk"}">${b.data?.type === "screen" ? "SCR" : "MRK"}</span>
             ${b.data?.imageUrl ? `<img class="fav-item-thumb" src="${escapeHtml(b.data.imageUrl)}" onerror="this.style.display='none'" alt="">` : ""}
-            <span class="fav-item-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
+            <span class="fav-item-name" data-json='${escapeHtml(JSON.stringify(b.data))}' title="클릭하여 JSON 복사 | ${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
               <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
-              <button class="fav-copy-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="복사">📋</button>
+              <button class="fav-setdefault-btn" data-type="${b.data?.type === 'screen' ? 'screen' : 'marker'}" data-json='${escapeHtml(JSON.stringify(b.data))}' title="기본값으로 설정">기본값</button>
               <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✏️</button>
               <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">🗑</button>
             </div>
@@ -433,13 +433,36 @@ async function renderFavTree() {
       });
     }
 
-    folderEl.querySelectorAll(".fav-copy-btn").forEach((btn) => {
+    // ── 이름 클릭 → JSON 복사 ──
+    folderEl.querySelectorAll(".fav-item-name").forEach((span) => {
+      span.addEventListener("click", (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(span.dataset.json).then(() => {
+          span.classList.add("copied-flash");
+          setTimeout(() => span.classList.remove("copied-flash"), 1200);
+        });
+      });
+    });
+
+    // ── 기본값으로 설정 버튼 ──
+    folderEl.querySelectorAll(".fav-setdefault-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(btn.dataset.json).then(() => {
-          btn.textContent = "✓";
-          setTimeout(() => (btn.textContent = "📋"), 1500);
-        });
+        const type = btn.dataset.type; // "marker" | "screen"
+        const d = JSON.parse(btn.dataset.json);
+        const saved = {
+          width: d.width ?? 0,
+          height: d.height ?? 0,
+          priority: d.overlapPriority ?? 0,
+          imageUrl: d.imageUrl ?? "",
+          fixedPlacement: d.fixedPlacement ?? false,
+          fixedSize: d.fixedSize ?? false,
+          ...(type === "screen" ? { coverImageUrl: d.coverImageUrl ?? "", asPlanePanel: d.asPlanePanel ?? false } : {}),
+        };
+        chrome.storage.local.set({ [`${type}Defaults`]: saved });
+        applyGeneratorDefaults(type, saved);
+        btn.textContent = "✓";
+        setTimeout(() => (btn.textContent = "기본값"), 1500);
       });
     });
 
