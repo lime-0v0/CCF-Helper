@@ -482,9 +482,37 @@
         charData = _extractCharFromDialog(dialog);
         if (charData) break;
       }
-      // fallback: Redux store 직접 탐색 (fiber walk로 못 찾은 경우)
+      const primaryDialog = targets[0] ?? null;
+      // fallback 1: Redux store 직접 탐색 (패턴 A+B)
+      if (!charData) charData = _findCharInRedux(primaryDialog);
+      // fallback 2: fiber.key / characterId prop 탐색
+      if (!charData && primaryDialog) {
+        const fkey2 = Object.keys(primaryDialog).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+        if (fkey2) charData = _findCharByFiberKey(primaryDialog[fkey2]);
+      }
+      // fallback 3: Firestore REST API — 캐릭터 목록 조회 후 이름 매칭
       if (!charData) {
-        charData = _findCharInRedux(targets[0] ?? null);
+        const nameHint = _dialogNameHint(primaryDialog);
+        const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+        if (nameHint && roomId && authToken) {
+          try {
+            const listUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters?pageSize=300`;
+            const resp = await _fetch(listUrl, { headers: { Authorization: `Bearer ${authToken}` } });
+            if (resp.ok) {
+              const data = await resp.json();
+              const matched = (data.documents ?? []).find(doc => {
+                const n = doc.fields?.name?.stringValue ?? "";
+                return n === nameHint || n.includes(nameHint) || nameHint.includes(n);
+              });
+              if (matched) {
+                const id = matched.name.split("/").pop();
+                const name = matched.fields?.name?.stringValue ?? "";
+                charData = { id, name };
+                console.log("[CCFHelper:dialog-scan] Firestore fallback:", charData);
+              }
+            }
+          } catch (e) { console.warn("[CCFHelper:dialog-scan] Firestore fallback error:", e); }
+        }
       }
       console.log("[CCFHelper:dialog-scan] result:", charData);
       window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
@@ -639,43 +667,101 @@
     return _walkFiberDown(startFiber);
   }
 
-  // Redux store에서 캐릭터 데이터 탐색 (dialog DOM에서 이름 힌트 추출)
+  // dialog 내 첫 번째 input 값 추출 (캐릭터 이름 힌트)
+  function _dialogNameHint(dialogEl) {
+    return dialogEl?.querySelector("input")?.value?.trim() ?? "";
+  }
+
+  // Redux store에서 캐릭터 탐색
+  // 패턴 A: { id, faces } 객체
+  // 패턴 B: { [charId]: { name, faces } } — 키=ID, 값=데이터
   function _findCharInRedux(dialogEl) {
     if (!_cachedReduxStore) return null;
     try {
       const state = _cachedReduxStore.getState();
-      // dialog 내 첫 번째 input의 값 → 캐릭터 이름 힌트
-      const nameHint = dialogEl?.querySelector("input")?.value?.trim() ?? "";
+      const nameHint = _dialogNameHint(dialogEl);
       const chars = [];
       const seen = new Set();
-      function collect(obj, depth) {
-        if (depth > 7 || !obj || typeof obj !== "object" || seen.has(obj)) return;
+      function collect(obj, depth, parentKey) {
+        if (depth > 8 || !obj || typeof obj !== "object" || seen.has(obj)) return;
         seen.add(obj);
-        if (Array.isArray(obj)) { for (const v of obj) collect(v, depth + 1); return; }
+        if (Array.isArray(obj)) {
+          for (let i = 0; i < obj.length; i++) collect(obj[i], depth + 1, String(i));
+          return;
+        }
+        // 패턴 A: {id (>=15), faces}
         const id = obj.id;
         if (typeof id === "string" && id.length >= 15 && Array.isArray(obj.faces)) {
-          chars.push(obj); return;
+          chars.push({ id, name: String(obj.name ?? "").trim() }); return;
         }
-        for (const v of Object.values(obj)) {
-          if (v && typeof v === "object") collect(v, depth + 1);
+        // 패턴 B: 부모 키가 ID, 이 객체는 {name, faces}
+        if (Array.isArray(obj.faces) && typeof obj.name === "string" &&
+            typeof parentKey === "string" && parentKey.length >= 15) {
+          chars.push({ id: parentKey, name: obj.name.trim() }); return;
+        }
+        for (const [k, v] of Object.entries(obj)) {
+          if (v && typeof v === "object") collect(v, depth + 1, k);
         }
       }
-      collect(state, 0);
+      collect(state, 0, null);
       console.log("[CCFHelper:dialog-scan] Redux chars:", chars.length, "nameHint:", nameHint);
       if (!chars.length) return null;
-      if (chars.length === 1) return { id: chars[0].id, name: String(chars[0].name ?? "").trim() };
+      if (chars.length === 1) return chars[0];
       if (nameHint) {
-        const m = chars.find(c => {
-          const n = String(c.name ?? "");
-          return n === nameHint || n.includes(nameHint) || nameHint.includes(n);
-        });
-        if (m) return { id: m.id, name: String(m.name ?? "").trim() };
+        const m = chars.find(c => c.name === nameHint || c.name.includes(nameHint) || nameHint.includes(c.name));
+        if (m) return m;
       }
-      return { id: chars[0].id, name: String(chars[0].name ?? "").trim() };
+      return chars[0];
     } catch (e) {
       console.warn("[CCFHelper:dialog-scan] Redux char lookup error:", e);
       return null;
     }
+  }
+
+  // Fiber에서 characterId prop + 캐릭터 데이터 hook state 조합 탐색
+  function _findCharByFiberKey(startFiber) {
+    let fiber = startFiber;
+    for (let i = 0; fiber && i < 500; i++, fiber = fiber.return) {
+      // fiber.key가 긴 문자열 → 캐릭터 ID로 사용 시도
+      const fkey = fiber.key;
+      if (typeof fkey === "string" && fkey.length >= 15) {
+        // 같은 fiber의 state에 이름/faces가 있는지 확인
+        let hs = fiber.memoizedState; let hi = 0;
+        while (hs && hi < 30) {
+          const sv = hs.memoizedState;
+          if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+            const name = sv.name ?? sv.characterName ?? sv.charaName ?? "";
+            if (typeof name === "string" && name.trim() &&
+                (Array.isArray(sv.faces) || typeof sv.initiative === "number")) {
+              return { id: fkey, name: name.trim() };
+            }
+          }
+          hs = hs.next; hi++;
+        }
+      }
+      // memoizedProps에 characterId/charaId 계열 prop이 있고, state에 faces/initiative가 있으면 매칭
+      const mp = fiber.memoizedProps;
+      if (mp && typeof mp === "object") {
+        for (const k of ["characterId", "charaId", "pieceId", "tokenId", "charId"]) {
+          const pid = mp[k];
+          if (typeof pid === "string" && pid.length >= 15) {
+            let hs = fiber.memoizedState; let hi = 0;
+            while (hs && hi < 20) {
+              const sv = hs.memoizedState;
+              if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+                const name = sv.name ?? sv.characterName ?? sv.charaName ?? "";
+                if (typeof name === "string" && name.trim() &&
+                    (Array.isArray(sv.faces) || typeof sv.initiative === "number")) {
+                  return { id: pid, name: name.trim() };
+                }
+              }
+              hs = hs.next; hi++;
+            }
+          }
+        }
+      }
+    }
+    return null;
   }
 
   function _matchCharProps(props) {
