@@ -837,10 +837,11 @@ document.getElementById("screenFavBtn")?.addEventListener("click", () => {
   openAddBookmarkForm(json, json.memo.slice(0, 20));
 });
 
-// 즐겨찾기 탭 클릭 시 렌더링
+// 탭 클릭 시 추가 처리
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     if (tab.dataset.tab === "fav") renderFavTree();
+    if (tab.dataset.tab === "standing") initStandingTab();
   });
 });
 
@@ -909,4 +910,160 @@ document.getElementById("importAllInput")?.addEventListener("change", async (e) 
   const mode = confirm("기존 데이터를 완전히 교체할까요?\n[확인] = 교체, [취소] = 기존에 추가") ? 'replace' : 'merge';
   await importJson(file, mode);
   e.target.value = "";
+});
+
+// =============================================
+// 스탠딩 탭
+// =============================================
+
+let _stdCharId = null;
+let _stdCharName = null;
+
+async function getStandingLib() {
+  return new Promise(r => chrome.storage.local.get({ standingLib: [] }, d => r(d.standingLib)));
+}
+async function saveStandingLib(lib) {
+  return new Promise(r => chrome.storage.local.set({ standingLib: lib }, r));
+}
+
+async function getCcfoliaTab() {
+  const tabs = await chrome.tabs.query({ url: "https://ccfolia.com/rooms/*" });
+  if (!tabs.length) return null;
+  let target = null;
+  try {
+    const win = await chrome.windows.getLastFocused({ populate: true, windowTypes: ["normal"] });
+    target = win.tabs?.find(t => t.url?.startsWith("https://ccfolia.com/rooms/")) ?? null;
+  } catch (_) {}
+  if (!target) {
+    tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+    target = tabs[0];
+  }
+  return target;
+}
+
+async function initStandingTab() {
+  const nameEl = document.getElementById("stdCharName");
+  const uploadSection = document.getElementById("stdUploadSection");
+  nameEl.textContent = "감지 중...";
+  nameEl.className = "std-char-name";
+
+  const tab = await getCcfoliaTab();
+  let charData = null;
+  if (tab) {
+    try { charData = (await chrome.tabs.sendMessage(tab.id, { type: "GET_CHAR_FROM_DIALOG" }))?.charData; }
+    catch (_) {}
+  }
+
+  if (charData?.id) {
+    _stdCharId = charData.id;
+    _stdCharName = charData.name || "(이름 없음)";
+    nameEl.textContent = `캐릭터: ${_stdCharName}`;
+    nameEl.className = "std-char-name detected";
+    uploadSection.style.display = "block";
+  } else {
+    _stdCharId = null; _stdCharName = null;
+    nameEl.textContent = tab ? "캐릭터 편집 화면을 열어 주세요" : "ccfolia 방 탭이 없습니다";
+    uploadSection.style.display = "none";
+  }
+  await renderStandingLib();
+}
+
+async function renderStandingLib() {
+  const lib = await getStandingLib();
+  const listEl = document.getElementById("stdLibList");
+  if (!lib.length) {
+    listEl.innerHTML = `<div class="std-lib-empty">저장된 스탠딩이 없습니다.</div>`;
+    return;
+  }
+  listEl.innerHTML = lib.map(item => `
+    <div class="std-lib-item" data-id="${item.id}">
+      ${item.imageUrl
+        ? `<img class="std-lib-thumb" src="${item.imageUrl}" alt="" loading="lazy">`
+        : `<div class="std-lib-thumb-placeholder"></div>`}
+      <span class="std-lib-name" title="${item.name}">${item.name}</span>
+      <div class="std-lib-actions">
+        <button class="std-apply-btn" data-id="${item.id}" ${_stdCharId ? "" : "disabled"}>▶</button>
+        <button class="std-del-btn" data-id="${item.id}" title="삭제">✕</button>
+      </div>
+    </div>
+  `).join("");
+
+  listEl.querySelectorAll(".std-apply-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      if (!_stdCharId) return;
+      const item = lib.find(i => i.id === btn.dataset.id);
+      if (!item) return;
+      const tab = await getCcfoliaTab();
+      if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+      const faceName = "@" + item.name.replace(/^@+/, "");
+      try {
+        const res = await chrome.tabs.sendMessage(tab.id, {
+          type: "ADD_STANDING_URL_FROM_POPUP", charId: _stdCharId, faceName, imageUrl: item.imageUrl,
+        });
+        if (res?.ok) showPopupToast(`"${item.name}" 적용됨!`);
+        else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+      } catch (e) { showPopupToast("오류: " + e.message); }
+    });
+  });
+
+  listEl.querySelectorAll(".std-del-btn").forEach(btn => {
+    btn.addEventListener("click", async () => {
+      const newLib = lib.filter(i => i.id !== btn.dataset.id);
+      await saveStandingLib(newLib);
+      await renderStandingLib();
+    });
+  });
+}
+
+// 재감지 버튼
+document.getElementById("stdRefreshBtn")?.addEventListener("click", initStandingTab);
+
+// 파일 업로드
+document.getElementById("stdUploadBtn")?.addEventListener("click", () => {
+  document.getElementById("stdFileInput").click();
+});
+document.getElementById("stdFileInput")?.addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (!files.length || !_stdCharId) return;
+  const tab = await getCcfoliaTab();
+  if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+
+  showPopupToast(`${files.length}개 업로드 중...`);
+  try {
+    const fileData = await Promise.all(files.map(async f => {
+      const buffer = await f.arrayBuffer();
+      return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer };
+    }));
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
+    });
+    if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
+    else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+  } catch (err) { showPopupToast("오류: " + err.message); }
+});
+
+// URL 추가 폼
+document.getElementById("stdAddUrlBtn")?.addEventListener("click", () => {
+  const form = document.getElementById("stdUrlForm");
+  form.style.display = form.style.display === "none" ? "block" : "none";
+});
+document.getElementById("stdUrlCancelBtn")?.addEventListener("click", () => {
+  document.getElementById("stdUrlForm").style.display = "none";
+  document.getElementById("stdUrlNameInput").value = "";
+  document.getElementById("stdUrlImageInput").value = "";
+});
+document.getElementById("stdUrlSaveBtn")?.addEventListener("click", async () => {
+  const name = document.getElementById("stdUrlNameInput").value.trim();
+  const imageUrl = document.getElementById("stdUrlImageInput").value.trim();
+  if (!name) { alert("이름을 입력해주세요."); return; }
+  if (!imageUrl) { alert("이미지 URL을 입력해주세요."); return; }
+  const lib = await getStandingLib();
+  lib.push({ id: "sl_" + Date.now().toString(36), name, imageUrl });
+  await saveStandingLib(lib);
+  document.getElementById("stdUrlForm").style.display = "none";
+  document.getElementById("stdUrlNameInput").value = "";
+  document.getElementById("stdUrlImageInput").value = "";
+  await renderStandingLib();
+  showPopupToast(`"${name}" 저장됨!`);
 });

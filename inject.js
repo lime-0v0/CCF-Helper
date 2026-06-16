@@ -115,7 +115,6 @@
   // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
   const PX_PER_GRID = 24; // 1그리드 = 24px (ccfolia 고정값)
   let _contextPanelCache = null;
-  let _contextCharCache  = null; // 우클릭한 캐릭터 데이터 캐시
   let _cachedReduxStore  = null; // Redux store 캐시 (fiber walk 중 발견 시 저장)
 
   /** 주어진 뷰포트 좌표에 해당하는 첫 번째 .movable 요소를 반환 */
@@ -130,7 +129,6 @@
 
   document.addEventListener("contextmenu", (e) => {
     _contextPanelCache = null;
-    _contextCharCache  = null;
     try {
       console.log("[CCFHelper:ctx] contextmenu target:", e.target.tagName, e.target.className?.slice?.(0, 60));
 
@@ -169,15 +167,6 @@
 
       _contextPanelCache = data;
       console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
-
-      // 캐릭터 추출은 패널 발견 여부와 무관하게 항상 시도
-      // (패널과 캐릭터가 겹쳐 있을 수 있음)
-      try {
-        _contextCharCache = _extractCharFromEl(e.target, e.clientX, e.clientY);
-        if (_contextCharCache) console.log("[CCFHelper:ctx] char cache:", _contextCharCache);
-      } catch (err) {
-        console.warn("[CCFHelper:ctx] char extraction error:", err);
-      }
     } catch (err) {
       console.warn("[CCFHelper:ctx] extraction error:", err);
     }
@@ -458,111 +447,27 @@
     return d;
   }
 
-  // ── 캐릭터 피스 데이터 추출 ─────────────────────────────────────────
-  function _extractCharFromEl(startEl, clientX, clientY) {
-    let node = startEl;
-    for (let domD = 0; domD < 30 && node && node !== document.documentElement; domD++, node = node.parentElement) {
-      const fkey = Object.keys(node).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
-      if (!fkey) continue;
-      let fiber = node[fkey];
-      for (let fi = 0; fiber && fi < 80; fi++, fiber = fiber.return) {
-        // Redux Provider 감지 — 캐릭터 walk 중에도 캐시
-        if (!_cachedReduxStore) {
-          const val = fiber.memoizedProps?.value;
-          if (val?.store?.getState) {
-            _cachedReduxStore = val.store;
-            console.log("[CCFHelper:redux] Redux store cached (char walk) ✓");
-          }
-        }
-        const r = _matchCharProps(fiber.memoizedProps);
-        if (r) return r;
-        let hs = fiber.memoizedState; let hi = 0;
-        while (hs && hi < 8) {
-          const sv = hs.memoizedState;
-          if (sv && typeof sv === "object" && !Array.isArray(sv)) {
-            const r2 = _matchCharProps(sv);
-            if (r2) return r2;
-          }
-          hs = hs.next; hi++;
-        }
-      }
-    }
-    // Redux store fallback
-    if (_cachedReduxStore) {
-      const movable = _findMovableAtCoords(clientX, clientY);
-      if (movable) return _findCharInRedux(movable);
-    }
-    return null;
-  }
-
-  function _matchCharProps(props) {
-    if (!props || typeof props !== "object" || Array.isArray(props)) return null;
-    const id = props.id;
-    // Firestore 문서 ID는 20자 영숫자. 15자 이상으로 완화
-    if (typeof id === "string" && id.length >= 15) {
-      const name = props.name ?? props.text ?? props.charaName ?? props.characterName ?? "";
-      // 1순위: x/y 그리드 좌표 — 패널은 props에 x/y 없음
-      if (typeof props.x === "number" || typeof props.y === "number") {
-        return { id, name: typeof name === "string" ? name.trim() : "" };
-      }
-      // 2순위: 캐릭터 전용 필드
-      if ("faceIndex"  in props || "faces"     in props ||
-          "status"     in props || "initiative" in props ||
-          "commands"   in props || "charaId"   in props ||
-          "statusBubbles" in props) {
-        return { id, name: typeof name === "string" ? name.trim() : "" };
-      }
-    }
-    for (const k of ["character", "piece", "data", "value", "current"]) {
-      const v = props[k];
-      if (v && typeof v === "object" && !Array.isArray(v)) {
-        const r = _matchCharProps(v);
-        if (r) return r;
-      }
-    }
-    return null;
-  }
-
-  function _findCharInRedux(movable) {
-    if (!_cachedReduxStore) return null;
-    try {
-      const state = _cachedReduxStore.getState();
-      const chars = [];
-      const _seen = new Set();
-      function collect(obj, depth) {
-        if (depth > 5 || !obj || typeof obj !== "object" || _seen.has(obj)) return;
-        _seen.add(obj);
-        if (Array.isArray(obj)) { for (const v of obj) collect(v, depth + 1); return; }
-        const id = obj.id; const name = obj.name ?? obj.text;
-        if (typeof id === "string" && id.length >= 10 && typeof name === "string" &&
-            ("faceIndex" in obj || "faces" in obj || "status" in obj)) {
-          chars.push(obj); return;
-        }
-        for (const v of Object.values(obj)) {
-          if (v && typeof v === "object") collect(v, depth + 1);
-        }
-      }
-      collect(state, 0);
-      if (chars.length === 0) return null;
-      if (chars.length === 1) return { id: chars[0].id, name: String(chars[0].name ?? chars[0].text ?? "") };
-      const img = movable.querySelector("img")?.src;
-      if (img) {
-        const byImg = chars.find(c => c.imageUrl === img);
-        if (byImg) return { id: byImg.id, name: String(byImg.name ?? byImg.text ?? "") };
-      }
-      return null;
-    } catch (_) { return null; }
-  }
-
   // ── 메시지 수신: content script → inject.js ──────────────────────────
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
     if (!event.data?.__ccfoliaHelper) return;
 
-    // ── GET_CHAR_DATA: 우클릭한 캐릭터 데이터 반환 ──
-    if (event.data.action === "GET_CHAR_DATA") {
+    // ── SCAN_DIALOG_FOR_CHAR: 캐릭터 편집 다이얼로그의 fiber에서 캐릭터 데이터 탐색 ──
+    if (event.data.action === "SCAN_DIALOG_FOR_CHAR") {
       const { requestId } = event.data;
-      window.postMessage({ __ccfoliaHelper: true, action: "CHAR_DATA_RESULT", requestId, charData: _contextCharCache }, "*");
+      let charData = null;
+      // "Standing Image" 텍스트를 포함한 다이얼로그 우선, 없으면 전체 다이얼로그 스캔
+      const dialogs = [...document.querySelectorAll("[role='dialog']")];
+      const targets = [
+        ...dialogs.filter(d => d.textContent.includes("Standing") || d.textContent.includes("Difference")),
+        ...dialogs.filter(d => !d.textContent.includes("Standing") && !d.textContent.includes("Difference")),
+      ];
+      for (const dialog of targets) {
+        charData = _extractCharFromDialog(dialog);
+        if (charData) break;
+      }
+      console.log("[CCFHelper:dialog-scan] result:", charData);
+      window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
       return;
     }
 
@@ -573,17 +478,10 @@
       return;
     }
 
-    // ── SCAN_MENU_FOR_CHAR: 현재 열린 메뉴 fiber에서 캐릭터 데이터 탐색 ──
-    // (contextmenu 시점 추출 실패 시 폴백 — 메뉴 컴포넌트 props에 캐릭터 데이터 있음)
-    if (event.data.action === "SCAN_MENU_FOR_CHAR") {
-      const { requestId } = event.data;
-      let charData = null;
-      const menus = document.querySelectorAll("[role='menu']");
-      for (let mi = menus.length - 1; mi >= 0 && !charData; mi--) {
-        charData = _extractCharFromEl(menus[mi], -1, -1);
-      }
-      console.log("[CCFHelper:menu-scan] result:", charData);
-      window.postMessage({ __ccfoliaHelper: true, action: "SCAN_MENU_RESULT", requestId, charData }, "*");
+    // ── ADD_STANDING_URL: URL로 스탠딩 직접 추가 (업로드 없이) ──
+    if (event.data.action === "ADD_STANDING_URL") {
+      const { requestId, roomId, charId, faceName, imageUrl } = event.data;
+      uploadStandingImages(requestId, roomId, charId, [{ faceName, directUrl: imageUrl }]);
       return;
     }
 
@@ -629,6 +527,58 @@
       window.postMessage({ __ccfoliaHelper: true, action: "CREATE_RESULT", requestId, success: false, error: e.message }, "*");
     }
   });
+
+  // ── 캐릭터 편집 다이얼로그 fiber 스캔 ──────────────────────────────────
+  function _extractCharFromDialog(el) {
+    const fkey = Object.keys(el).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+    if (!fkey) return null;
+    let fiber = el[fkey];
+    for (let i = 0; fiber && i < 150; i++, fiber = fiber.return) {
+      if (!_cachedReduxStore) {
+        const val = fiber.memoizedProps?.value;
+        if (val?.store?.getState) { _cachedReduxStore = val.store; }
+      }
+      const r = _matchCharProps(fiber.memoizedProps);
+      if (r) return r;
+      let hs = fiber.memoizedState; let hi = 0;
+      while (hs && hi < 12) {
+        const sv = hs.memoizedState;
+        if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+          const r2 = _matchCharProps(sv);
+          if (r2) return r2;
+        }
+        hs = hs.next; hi++;
+      }
+    }
+    return null;
+  }
+
+  function _matchCharProps(props) {
+    if (!props || typeof props !== "object" || Array.isArray(props)) return null;
+    const id = props.id;
+    if (typeof id === "string" && id.length >= 15) {
+      const name = props.name ?? props.text ?? props.charaName ?? props.characterName ?? "";
+      // faces 배열이 있으면 가장 확실한 캐릭터 편집 다이얼로그 데이터
+      if (Array.isArray(props.faces) && typeof name === "string") {
+        return { id, name: name.trim() };
+      }
+      if (typeof name === "string" && name.trim() &&
+          (typeof props.x === "number" || typeof props.y === "number" ||
+           typeof props.gridX === "number" ||
+           "faceIndex" in props || "status" in props || "initiative" in props ||
+           "charaId" in props || "statusBubbles" in props)) {
+        return { id, name: name.trim() };
+      }
+    }
+    for (const k of ["character", "piece", "data", "value", "current"]) {
+      const v = props[k];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const r = _matchCharProps(v);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
 
   // ── userId 취득 (localStorage → JWT fallback) ────────────────────────
   function getUserId() {
@@ -683,10 +633,10 @@
       });
       if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
 
-      // 파일 순차 업로드
+      // 파일 순차 업로드 (directUrl이 있으면 업로드 없이 URL 직접 사용)
       const uploaded = [];
       for (const f of files) {
-        const cdnUrl = await uploadFileToStorage(f.buffer, f.type);
+        const cdnUrl = f.directUrl ?? await uploadFileToStorage(f.buffer, f.type);
         uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
       }
 

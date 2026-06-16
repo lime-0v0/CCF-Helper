@@ -57,6 +57,7 @@
   .tab:hover { color: #aaa; }
   .tab.active { color: #00c853; border-bottom-color: #00c853; font-weight: 700; }
   .tab[data-tab="fav"].active { color: #F7E987; border-bottom-color: #F7E987; }
+  .tab[data-tab="standing"].active { color: #80cbc4; border-bottom-color: #80cbc4; }
   .tab.disabled { color: #333; cursor: default; }
   .tab .badge {
     display: inline-block;
@@ -643,6 +644,79 @@
   .fav-folder.folder-drag-over-top { border-top: 2px solid #F7E987; }
   .fav-folder.folder-drag-over-bottom { border-bottom: 2px solid #F7E987; }
 
+  /* ── 스탠딩 탭 ── */
+  .std-char-bar {
+    display: flex; align-items: center; gap: 6px;
+    background: #252525; border-radius: 6px;
+    padding: 7px 10px; margin-bottom: 8px;
+  }
+  .std-char-name { flex: 1; font-size: 12px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .std-char-name.detected { color: #80cbc4; }
+  .std-refresh-btn {
+    background: none; border: none; color: #555; font-size: 14px;
+    cursor: pointer; padding: 0 2px; line-height: 1; flex-shrink: 0;
+  }
+  .std-refresh-btn:hover { color: #80cbc4; }
+  .std-section { margin-bottom: 10px; }
+  .std-upload-btn {
+    width: 100%; padding: 7px; border: 1px dashed #444; border-radius: 6px;
+    background: none; color: #80cbc4; font-size: 12px; cursor: pointer;
+    font-family: inherit; transition: background 0.15s;
+  }
+  .std-upload-btn:hover { background: rgba(128,203,196,0.08); }
+  .std-lib-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .std-lib-title { font-size: 11px; color: #777; }
+  .std-add-url-btn {
+    background: none; border: 1px solid #444; border-radius: 4px;
+    color: #aaa; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    font-family: inherit;
+  }
+  .std-add-url-btn:hover { border-color: #80cbc4; color: #80cbc4; }
+  .std-url-form {
+    background: #252525; border-radius: 6px; padding: 8px; margin-bottom: 8px;
+  }
+  .std-url-form input {
+    width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333;
+    border-radius: 4px; color: #e0e0e0; font-size: 11px; padding: 5px 7px;
+    margin-bottom: 5px; font-family: inherit;
+  }
+  .std-url-form-btns { display: flex; gap: 5px; justify-content: flex-end; }
+  .std-url-form-btns button {
+    border: 1px solid #444; border-radius: 4px; background: none;
+    color: #aaa; font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: inherit;
+  }
+  .std-url-form-btns button.primary { background: #1b5e20; border-color: #1b5e20; color: #fff; }
+  .std-url-form-btns button:hover:not(.primary) { border-color: #666; color: #ccc; }
+  .std-lib-list { display: flex; flex-direction: column; gap: 4px; }
+  .std-lib-item {
+    display: flex; align-items: center; gap: 6px;
+    background: #252525; border-radius: 5px; padding: 5px 7px;
+  }
+  .std-lib-thumb {
+    width: 32px; height: 32px; border-radius: 3px; object-fit: cover; flex-shrink: 0;
+  }
+  .std-lib-thumb-placeholder {
+    width: 32px; height: 32px; border-radius: 3px; background: #333; flex-shrink: 0;
+  }
+  .std-lib-name {
+    flex: 1; font-size: 11px; color: #ccc; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .std-lib-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .std-apply-btn, .std-del-btn {
+    background: none; border: 1px solid #444; border-radius: 4px;
+    font-size: 10px; padding: 2px 6px; cursor: pointer; font-family: inherit;
+  }
+  .std-apply-btn { color: #80cbc4; border-color: #80cbc4; }
+  .std-apply-btn:hover:not(:disabled) { background: rgba(128,203,196,0.15); }
+  .std-apply-btn:disabled { color: #444; border-color: #333; cursor: default; }
+  .std-del-btn { color: #666; }
+  .std-del-btn:hover { color: #ef5350; border-color: #ef5350; }
+  .std-lib-empty { font-size: 11px; color: #555; text-align: center; padding: 12px 0; }
+
 </style>
 </head>
 <body>
@@ -650,13 +724,14 @@
 <div class="header">
   <div class="header-icon">C</div>
   <span class="header-title">Ccfolia Helper</span>
-  <span class="header-sub">v1.5.0</span>
+  <span class="header-sub">v1.6.0</span>
 </div>
 
 <div class="tabs">
   <div class="tab active" data-tab="marker">Marker</div>
   <div class="tab" data-tab="screen">Screen</div>
   <div class="tab" data-tab="fav">★ 즐겨찾기</div>
+  <div class="tab" data-tab="standing">✦ 스탠딩</div>
   <div class="tab" data-tab="info">ℹ 정보</div>
 </div>
 
@@ -1002,12 +1077,48 @@
 
 </div>
 
+<!-- 스탠딩 탭 -->
+<div class="tab-content" id="tab-standing">
+
+  <!-- 현재 캐릭터 표시 -->
+  <div class="std-char-bar">
+    <span class="std-char-name" id="stdCharName">캐릭터 편집 화면을 열어 주세요</span>
+    <button class="std-refresh-btn" id="stdRefreshBtn" title="재감지">↻</button>
+  </div>
+
+  <!-- 파일 업로드 (캐릭터 감지 시 표시) -->
+  <div class="std-section" id="stdUploadSection" style="display:none">
+    <button class="std-upload-btn" id="stdUploadBtn">📁 파일에서 추가</button>
+    <input type="file" id="stdFileInput" accept="image/*" multiple style="display:none">
+  </div>
+
+  <!-- 라이브러리 -->
+  <div class="std-section">
+    <div class="std-lib-header">
+      <span class="std-lib-title">라이브러리</span>
+      <button class="std-add-url-btn" id="stdAddUrlBtn">+ URL 추가</button>
+    </div>
+    <div class="std-url-form" id="stdUrlForm" style="display:none">
+      <input type="text" id="stdUrlNameInput" placeholder="이름 (예: 미소)">
+      <input type="text" id="stdUrlImageInput" placeholder="이미지 URL">
+      <div class="std-url-form-btns">
+        <button id="stdUrlCancelBtn">취소</button>
+        <button class="primary" id="stdUrlSaveBtn">저장</button>
+      </div>
+    </div>
+    <div class="std-lib-list" id="stdLibList">
+      <div class="std-lib-empty">저장된 스탠딩이 없습니다.</div>
+    </div>
+  </div>
+
+</div>
+
 <!-- 정보 탭 -->
 <div class="tab-content" id="tab-info">
   <div class="info-hero">
     <div class="info-hero-icon">C</div>
     <div class="info-hero-name">Ccfolia Helper</div>
-    <div class="info-hero-ver">v1.5.0</div>
+    <div class="info-hero-ver">v1.6.0</div>
     <div class="info-hero-desc">ccfolia.com 마커 · 스크린 패널 생성 도우미</div>
   </div>
   <div class="info-row">

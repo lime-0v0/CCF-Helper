@@ -252,6 +252,26 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     createPanel(msg.data).then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === "GET_CHAR_FROM_DIALOG") {
+    scanDialogForChar()
+      .then(charData => sendResponse({ ok: true, charData }))
+      .catch(() => sendResponse({ ok: true, charData: null }));
+    return true;
+  }
+  if (msg.type === "UPLOAD_STANDINGS_FROM_POPUP") {
+    const roomId = getRoomId();
+    uploadStandingViaInject(roomId, msg.charId, msg.files)
+      .then(count => sendResponse({ ok: true, count }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+  if (msg.type === "ADD_STANDING_URL_FROM_POPUP") {
+    const roomId = getRoomId();
+    addStandingUrlViaInject(roomId, msg.charId, msg.faceName, msg.imageUrl)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 });
 
 // ── 우클릭 메뉴 → 즐겨찾기 추가 기능 ─────────────────────────────────
@@ -295,38 +315,6 @@ function getPanelDataFromInject() {
   });
 }
 
-function getCharDataFromInject() {
-  return new Promise((resolve) => {
-    const requestId = `ccfh_ctx_char_${++_reqCounter}_${Date.now()}`;
-    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); resolve(null); }, 5000);
-    function onMsg(event) {
-      if (!event.data?.__ccfoliaHelper) return;
-      if (event.data.action !== "CHAR_DATA_RESULT") return;
-      if (event.data.requestId !== requestId) return;
-      clearTimeout(timer); window.removeEventListener("message", onMsg);
-      resolve(event.data.charData ?? null);
-    }
-    window.addEventListener("message", onMsg);
-    window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_DATA", requestId }, "*");
-  });
-}
-
-function scanMenuForChar() {
-  return new Promise((resolve) => {
-    const requestId = `ccfh_scanmenu_${++_reqCounter}_${Date.now()}`;
-    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); resolve(null); }, 5000);
-    function onMsg(event) {
-      if (!event.data?.__ccfoliaHelper) return;
-      if (event.data.action !== "SCAN_MENU_RESULT") return;
-      if (event.data.requestId !== requestId) return;
-      clearTimeout(timer); window.removeEventListener("message", onMsg);
-      resolve(event.data.charData ?? null);
-    }
-    window.addEventListener("message", onMsg);
-    window.postMessage({ __ccfoliaHelper: true, action: "SCAN_MENU_FOR_CHAR", requestId }, "*");
-  });
-}
-
 function readFileAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -353,66 +341,37 @@ function uploadStandingViaInject(roomId, charId, files) {
   });
 }
 
-async function injectStandingButton(menu) {
-  if (menu.querySelector(".ccfh-standing-btn")) return;
-
-  // 1차: contextmenu 시점 캐시에서 조회
-  let charData = await getCharDataFromInject();
-  // 2차 폴백: 메뉴 컴포넌트 fiber 직접 스캔 (패널과 캐릭터 겹침 등으로 1차 실패 시)
-  if (!charData) charData = await scanMenuForChar();
-  if (!menu.isConnected) return;
-
-  const btn = document.createElement("li");
-  btn.className = "ccfh-standing-btn";
-  btn.setAttribute("role", "menuitem");
-  btn.style.cssText = [
-    "display:flex", "align-items:center", "gap:8px",
-    "padding:6px 16px", "cursor:pointer", "font-size:0.875rem", "color:#80cbc4",
-    "list-style:none", "user-select:none",
-    "border-bottom:1px solid rgba(255,255,255,0.12)", "margin-bottom:4px",
-  ].join(";");
-  btn.innerHTML = `<span style="font-size:1em">✦</span><span>[CCF Helper] 스탠딩 추가</span>`;
-  btn.addEventListener("mouseenter", () => { btn.style.background = "rgba(128,203,196,0.15)"; });
-  btn.addEventListener("mouseleave", () => { btn.style.background = ""; });
-
-  btn.addEventListener("click", async (e) => {
-    e.stopPropagation(); e.preventDefault();
-    setTimeout(() => document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })), 10);
-
-    if (!charData) {
-      showToast("캐릭터 정보를 읽지 못했습니다. 다시 우클릭해 주세요.", true);
-      return;
+function scanDialogForChar() {
+  return new Promise((resolve) => {
+    const requestId = `ccfh_dialog_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); resolve(null); }, 6000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "SCAN_DIALOG_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      resolve(event.data.charData ?? null);
     }
-
-    const fileInput = document.createElement("input");
-    fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.multiple = true;
-    fileInput.style.display = "none";
-    document.body.appendChild(fileInput);
-
-    fileInput.addEventListener("change", async () => {
-      const selected = [...fileInput.files];
-      fileInput.remove();
-      if (!selected.length) return;
-
-      showToast(`${selected.length}개 이미지 업로드 중...`);
-      try {
-        const fileData = await Promise.all(selected.map(async (f) => {
-          const buffer = await readFileAsArrayBuffer(f);
-          return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer };
-        }));
-        const roomId = getRoomId();
-        if (!roomId) throw new Error("ROOM_ID_NOT_FOUND");
-        const count = await uploadStandingViaInject(roomId, charData.id, fileData);
-        showToast(`스탠딩 ${count}개 추가됨! (${charData.name})`);
-      } catch (err) {
-        showToast(`업로드 실패: ${err.message}`, true);
-      }
-    });
-
-    fileInput.click();
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_FOR_CHAR", requestId }, "*");
   });
+}
 
-  menu.insertBefore(btn, menu.firstChild);
+function addStandingUrlViaInject(roomId, charId, faceName, imageUrl) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_addurl_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 15000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "UPLOAD_STANDING_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve();
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "ADD_STANDING_URL", requestId, roomId, charId, faceName, imageUrl }, "*");
+  });
 }
 
 async function addPanelToFavorites(panelData) {
@@ -428,16 +387,9 @@ async function addPanelToFavorites(panelData) {
   showToast(`[${typeLabel}] "${name}" 즐겨찾기에 추가됨!`);
 }
 
-function _dispatchContextMenu(menu) {
-  if (menu.textContent.includes("To own piece")) {
-    injectStandingButton(menu);
-  } else {
-    injectFavButton(menu);
-  }
-}
-
 async function injectFavButton(menu) {
   if (menu.querySelector(".ccfh-ctx-btn")) return;
+  if (menu.textContent.includes("To own piece")) return;
 
   const panelData = await getPanelDataFromInject();
   if (!panelData) return;
@@ -503,10 +455,10 @@ const _ctxObserver = new MutationObserver((mutations) => {
     for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
       if (node.getAttribute?.("role") === "menu") {
-        if (_contextMenuFired) { _contextMenuFired = false; _dispatchContextMenu(node); nudgeMenuUp(node); }
+        if (_contextMenuFired) { _contextMenuFired = false; injectFavButton(node); nudgeMenuUp(node); }
       } else {
         const menu = node.querySelector?.("[role='menu']");
-        if (menu && _contextMenuFired) { _contextMenuFired = false; _dispatchContextMenu(menu); nudgeMenuUp(menu); }
+        if (menu && _contextMenuFired) { _contextMenuFired = false; injectFavButton(menu); nudgeMenuUp(menu); }
       }
     }
   }
