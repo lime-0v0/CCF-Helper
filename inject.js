@@ -115,6 +115,7 @@
   // ── 우클릭 패널 데이터 캐시 (React fiber 추출) ──────────────────────────
   const PX_PER_GRID = 24; // 1그리드 = 24px (ccfolia 고정값)
   let _contextPanelCache = null;
+  let _contextCharCache  = null; // 우클릭한 캐릭터 데이터 캐시
   let _cachedReduxStore  = null; // Redux store 캐시 (fiber walk 중 발견 시 저장)
 
   /** 주어진 뷰포트 좌표에 해당하는 첫 번째 .movable 요소를 반환 */
@@ -129,6 +130,7 @@
 
   document.addEventListener("contextmenu", (e) => {
     _contextPanelCache = null;
+    _contextCharCache  = null;
     try {
       console.log("[CCFHelper:ctx] contextmenu target:", e.target.tagName, e.target.className?.slice?.(0, 60));
 
@@ -167,6 +169,16 @@
 
       _contextPanelCache = data;
       console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
+
+      // 패널이 아닌 경우 캐릭터 피스 추출 시도
+      if (!_contextPanelCache) {
+        try {
+          _contextCharCache = _extractCharFromEl(e.target, e.clientX, e.clientY);
+          if (_contextCharCache) console.log("[CCFHelper:ctx] char cache:", _contextCharCache);
+        } catch (err) {
+          console.warn("[CCFHelper:ctx] char extraction error:", err);
+        }
+      }
     } catch (err) {
       console.warn("[CCFHelper:ctx] extraction error:", err);
     }
@@ -447,10 +459,104 @@
     return d;
   }
 
+  // ── 캐릭터 피스 데이터 추출 ─────────────────────────────────────────
+  function _extractCharFromEl(startEl, clientX, clientY) {
+    let node = startEl;
+    for (let domD = 0; domD < 30 && node && node !== document.documentElement; domD++, node = node.parentElement) {
+      const fkey = Object.keys(node).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+      if (!fkey) continue;
+      let fiber = node[fkey];
+      for (let fi = 0; fiber && fi < 80; fi++, fiber = fiber.return) {
+        const r = _matchCharProps(fiber.memoizedProps);
+        if (r) return r;
+        let hs = fiber.memoizedState; let hi = 0;
+        while (hs && hi < 8) {
+          const sv = hs.memoizedState;
+          if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+            const r2 = _matchCharProps(sv);
+            if (r2) return r2;
+          }
+          hs = hs.next; hi++;
+        }
+      }
+    }
+    if (_cachedReduxStore) {
+      const movable = _findMovableAtCoords(clientX, clientY);
+      if (movable) return _findCharInRedux(movable);
+    }
+    return null;
+  }
+
+  function _matchCharProps(props) {
+    if (!props || typeof props !== "object" || Array.isArray(props)) return null;
+    const id   = props.id;
+    const name = props.name ?? props.text;
+    if (typeof id === "string" && id.length >= 10 && typeof name === "string" && name.trim()) {
+      if ("faceIndex"  in props || "faces"     in props ||
+          "status"     in props || "initiative" in props ||
+          "commands"   in props || "charaId"   in props) {
+        return { id, name: name.trim() };
+      }
+    }
+    for (const k of ["character", "piece", "data", "value", "current"]) {
+      const v = props[k];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const r = _matchCharProps(v);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
+
+  function _findCharInRedux(movable) {
+    if (!_cachedReduxStore) return null;
+    try {
+      const state = _cachedReduxStore.getState();
+      const chars = [];
+      const _seen = new Set();
+      function collect(obj, depth) {
+        if (depth > 5 || !obj || typeof obj !== "object" || _seen.has(obj)) return;
+        _seen.add(obj);
+        if (Array.isArray(obj)) { for (const v of obj) collect(v, depth + 1); return; }
+        const id = obj.id; const name = obj.name ?? obj.text;
+        if (typeof id === "string" && id.length >= 10 && typeof name === "string" &&
+            ("faceIndex" in obj || "faces" in obj || "status" in obj)) {
+          chars.push(obj); return;
+        }
+        for (const v of Object.values(obj)) {
+          if (v && typeof v === "object") collect(v, depth + 1);
+        }
+      }
+      collect(state, 0);
+      if (chars.length === 0) return null;
+      if (chars.length === 1) return { id: chars[0].id, name: String(chars[0].name ?? chars[0].text ?? "") };
+      const img = movable.querySelector("img")?.src;
+      if (img) {
+        const byImg = chars.find(c => c.imageUrl === img);
+        if (byImg) return { id: byImg.id, name: String(byImg.name ?? byImg.text ?? "") };
+      }
+      return null;
+    } catch (_) { return null; }
+  }
+
   // ── 메시지 수신: content script → inject.js ──────────────────────────
   window.addEventListener("message", async (event) => {
     if (event.source !== window) return;
     if (!event.data?.__ccfoliaHelper) return;
+
+    // ── GET_CHAR_DATA: 우클릭한 캐릭터 데이터 반환 ──
+    if (event.data.action === "GET_CHAR_DATA") {
+      const { requestId } = event.data;
+      window.postMessage({ __ccfoliaHelper: true, action: "CHAR_DATA_RESULT", requestId, charData: _contextCharCache }, "*");
+      return;
+    }
+
+    // ── UPLOAD_STANDING: 스탠딩 이미지 업로드 + Firestore 저장 ──
+    if (event.data.action === "UPLOAD_STANDING") {
+      const { requestId, roomId, charId, files } = event.data;
+      uploadStandingImages(requestId, roomId, charId, files);
+      return;
+    }
 
     // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
     if (event.data.action === "GET_PANEL_DATA") {
@@ -494,6 +600,115 @@
       window.postMessage({ __ccfoliaHelper: true, action: "CREATE_RESULT", requestId, success: false, error: e.message }, "*");
     }
   });
+
+  // ── userId 취득 (localStorage → JWT fallback) ────────────────────────
+  function getUserId() {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key?.startsWith("firebase:authUser:")) continue;
+        const d = JSON.parse(localStorage.getItem(key) ?? "null");
+        if (d?.uid) return d.uid;
+      }
+    } catch (_) {}
+    if (authToken) {
+      try {
+        const b64 = authToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(atob(b64));
+        return payload.user_id ?? payload.sub ?? null;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // ── 스탠딩 이미지 파일 → ccfolia CDN 업로드 ──────────────────────────
+  async function uploadFileToStorage(arrayBuffer, mimeType) {
+    const userId = getUserId();
+    if (!userId) throw new Error("USER_ID_NOT_FOUND");
+    const hashBuf = await crypto.subtle.digest("SHA-256", arrayBuffer);
+    const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    const filePath = `users/${userId}/files/${hashHex}`;
+    const blob = new Blob([arrayBuffer], { type: mimeType });
+    const form = new FormData();
+    form.append("file", blob);
+    form.append("filePath", filePath);
+    const resp = await _fetch("https://asia-northeast1-ccfolia-160aa.cloudfunctions.net/uploadFileV2", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${authToken}` },
+      body: form,
+    });
+    if (!resp.ok) throw new Error(`Upload ${resp.status}: ${await resp.text()}`);
+    const data = await resp.json();
+    return `https://storage.ccfolia-cdn.net/${data.name}?t=${Math.floor(Number(data.generation) / 1000)}`;
+  }
+
+  // ── UPLOAD_STANDING: 파일 업로드 → Firestore faces PATCH ─────────────
+  async function uploadStandingImages(requestId, roomId, charId, files) {
+    try {
+      await new Promise((resolve) => {
+        try {
+          const user = window.firebase?.auth?.()?.currentUser;
+          if (user?.getIdToken) user.getIdToken().then((t) => { authToken = t; resolve(); }).catch(resolve);
+          else resolve();
+        } catch (_) { resolve(); }
+      });
+      if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
+
+      // 파일 순차 업로드
+      const uploaded = [];
+      for (const f of files) {
+        const cdnUrl = await uploadFileToStorage(f.buffer, f.type);
+        uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
+      }
+
+      // 기존 faces 읽기
+      const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+      const getResp = await _fetch(charUrl, { headers: { "Authorization": `Bearer ${authToken}` } });
+      let existingFaces = [];
+      if (getResp.ok) {
+        const doc = await getResp.json();
+        existingFaces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => ({
+          name: v.mapValue?.fields?.name?.stringValue ?? "",
+          imageUrl: v.mapValue?.fields?.imageUrl?.stringValue ?? "",
+        }));
+      }
+
+      // 병합 + 이름 중복 처리
+      const combined = [...existingFaces];
+      for (const u of uploaded) {
+        let name = u.faceName; let ctr = 1;
+        while (combined.some(f => f.name === name)) name = `${u.faceName} (${ctr++})`;
+        combined.push({ name, imageUrl: u.imageUrl });
+      }
+
+      // PATCH
+      const patchUrl = `${charUrl}?updateMask.fieldPaths=faces&updateMask.fieldPaths=updatedAt`;
+      const body = {
+        fields: {
+          faces: {
+            arrayValue: {
+              values: combined.map(f => ({
+                mapValue: { fields: {
+                  name:     { stringValue: f.name },
+                  imageUrl: { stringValue: f.imageUrl },
+                }},
+              })),
+            },
+          },
+          updatedAt: { integerValue: String(Date.now()) },
+        },
+      };
+      const patchResp = await _fetch(patchUrl, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${authToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!patchResp.ok) throw new Error(`Firestore ${patchResp.status}: ${await patchResp.text()}`);
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING_RESULT", requestId, success: true, count: uploaded.length }, "*");
+    } catch (err) {
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING_RESULT", requestId, success: false, error: err.message }, "*");
+    }
+  }
 
   // ── Firestore REST API: 마커 생성 (room 문서의 markers 맵 PATCH) ──────
   async function firestoreUpsertMarker(roomId, d) {
