@@ -467,6 +467,14 @@
       if (!fkey) continue;
       let fiber = node[fkey];
       for (let fi = 0; fiber && fi < 80; fi++, fiber = fiber.return) {
+        // Redux Provider 감지 — 캐릭터 walk 중에도 캐시
+        if (!_cachedReduxStore) {
+          const val = fiber.memoizedProps?.value;
+          if (val?.store?.getState) {
+            _cachedReduxStore = val.store;
+            console.log("[CCFHelper:redux] Redux store cached (char walk) ✓");
+          }
+        }
         const r = _matchCharProps(fiber.memoizedProps);
         if (r) return r;
         let hs = fiber.memoizedState; let hi = 0;
@@ -480,6 +488,7 @@
         }
       }
     }
+    // Redux store fallback
     if (_cachedReduxStore) {
       const movable = _findMovableAtCoords(clientX, clientY);
       if (movable) return _findCharInRedux(movable);
@@ -489,13 +498,20 @@
 
   function _matchCharProps(props) {
     if (!props || typeof props !== "object" || Array.isArray(props)) return null;
-    const id   = props.id;
-    const name = props.name ?? props.text;
-    if (typeof id === "string" && id.length >= 10 && typeof name === "string" && name.trim()) {
+    const id = props.id;
+    // Firestore 문서 ID는 20자 영숫자. 15자 이상으로 완화
+    if (typeof id === "string" && id.length >= 15) {
+      const name = props.name ?? props.text ?? props.charaName ?? props.characterName ?? "";
+      // 1순위: x/y 그리드 좌표 — 패널은 props에 x/y 없음
+      if (typeof props.x === "number" || typeof props.y === "number") {
+        return { id, name: typeof name === "string" ? name.trim() : "" };
+      }
+      // 2순위: 캐릭터 전용 필드
       if ("faceIndex"  in props || "faces"     in props ||
           "status"     in props || "initiative" in props ||
-          "commands"   in props || "charaId"   in props) {
-        return { id, name: name.trim() };
+          "commands"   in props || "charaId"   in props ||
+          "statusBubbles" in props) {
+        return { id, name: typeof name === "string" ? name.trim() : "" };
       }
     }
     for (const k of ["character", "piece", "data", "value", "current"]) {

@@ -339,8 +339,10 @@ function uploadStandingViaInject(roomId, charId, files) {
 
 async function injectStandingButton(menu) {
   if (menu.querySelector(".ccfh-standing-btn")) return;
+
+  // charData 조회 (실패해도 버튼은 표시 — 클릭 시 재시도 or 오류 안내)
   const charData = await getCharDataFromInject();
-  if (!charData || !menu.isConnected) return;
+  if (!menu.isConnected) return;
 
   const btn = document.createElement("li");
   btn.className = "ccfh-standing-btn";
@@ -358,6 +360,11 @@ async function injectStandingButton(menu) {
   btn.addEventListener("click", async (e) => {
     e.stopPropagation(); e.preventDefault();
     setTimeout(() => document.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })), 10);
+
+    if (!charData) {
+      showToast("캐릭터 정보를 읽지 못했습니다. 다시 우클릭해 주세요.", true);
+      return;
+    }
 
     const fileInput = document.createElement("input");
     fileInput.type = "file"; fileInput.accept = "image/*"; fileInput.multiple = true;
