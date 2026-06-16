@@ -311,7 +311,9 @@ async function addPanelToFavorites(panelData) {
 async function injectFavButton(menu) {
   if (menu.querySelector(".ccfh-ctx-btn")) return;
 
-  // 캐릭터(피스)는 inject.js에서 null 반환 → 버튼 추가 안 함
+  // 캐릭터(피스) 전용 메뉴 항목 감지 → 마커/스크린 패널 메뉴가 아님
+  if (menu.textContent.includes("To own piece")) return;
+
   const panelData = await getPanelDataFromInject();
   if (!panelData) return;
 
