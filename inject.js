@@ -500,10 +500,19 @@
             const resp = await _fetch(listUrl, { headers: { Authorization: `Bearer ${authToken}` } });
             if (resp.ok) {
               const data = await resp.json();
-              const matched = (data.documents ?? []).find(doc => {
-                const n = doc.fields?.name?.stringValue ?? "";
-                return n === nameHint || n.includes(nameHint) || nameHint.includes(n);
-              });
+              const docs = data.documents ?? [];
+              // 정확한 이름 일치 우선, 그 다음 부분 문자열 (단, 후보가 1개일 때만 부분 매칭)
+              const matched =
+                docs.find(doc => (doc.fields?.name?.stringValue ?? "") === nameHint) ??
+                (docs.filter(doc => {
+                  const n = doc.fields?.name?.stringValue ?? "";
+                  return n.includes(nameHint) || nameHint.includes(n);
+                }).length === 1
+                  ? docs.find(doc => {
+                      const n = doc.fields?.name?.stringValue ?? "";
+                      return n.includes(nameHint) || nameHint.includes(n);
+                    })
+                  : null);
               if (matched) {
                 const id = matched.name.split("/").pop();
                 const name = matched.fields?.name?.stringValue ?? "";
@@ -550,10 +559,13 @@
           const resp = await _fetch(charUrl, { headers: { "Authorization": `Bearer ${authToken}` } });
           if (!resp.ok) throw new Error(`Firestore ${resp.status}`);
           const doc = await resp.json();
-          const faces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => ({
-            name: v.mapValue?.fields?.name?.stringValue ?? "",
-            imageUrl: v.mapValue?.fields?.imageUrl?.stringValue ?? "",
-          }));
+          const faces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => {
+            const f = v.mapValue?.fields ?? {};
+            return {
+              name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+              imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+            };
+          });
           window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces }, "*");
         } catch (err) {
           window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: false, error: err.message }, "*");
@@ -667,9 +679,18 @@
     return _walkFiberDown(startFiber);
   }
 
-  // dialog 내 첫 번째 input 값 추출 (캐릭터 이름 힌트)
+  // dialog 내 첫 번째 텍스트 input 값 추출 (캐릭터 이름 힌트)
+  // hidden / number / checkbox / radio / range 타입 및 순수 숫자 값은 건너뜀
   function _dialogNameHint(dialogEl) {
-    return dialogEl?.querySelector("input")?.value?.trim() ?? "";
+    if (!dialogEl) return "";
+    const inputs = dialogEl.querySelectorAll(
+      'input:not([type="hidden"]):not([type="number"]):not([type="checkbox"]):not([type="radio"]):not([type="range"])'
+    );
+    for (const inp of inputs) {
+      const v = inp.value?.trim() ?? "";
+      if (v && !/^-?\d+(\.\d+)?$/.test(v)) return v;
+    }
+    return "";
   }
 
   // Redux store에서 캐릭터 탐색
@@ -694,9 +715,11 @@
         if (typeof id === "string" && id.length >= 15 && Array.isArray(obj.faces)) {
           chars.push({ id, name: String(obj.name ?? "").trim() }); return;
         }
-        // 패턴 B: 부모 키가 ID, 이 객체는 {name, faces}
-        if (Array.isArray(obj.faces) && typeof obj.name === "string" &&
-            typeof parentKey === "string" && parentKey.length >= 15) {
+        // 패턴 B: 부모 키가 ID(>=15자), 이 객체는 캐릭터 데이터 — faces 없어도 initiative/x/y/status로 판단
+        if (typeof obj.name === "string" && obj.name.trim() &&
+            typeof parentKey === "string" && parentKey.length >= 15 &&
+            (Array.isArray(obj.faces) || typeof obj.initiative === "number" ||
+             typeof obj.x === "number" || typeof obj.y === "number" || "status" in obj)) {
           chars.push({ id: parentKey, name: obj.name.trim() }); return;
         }
         for (const [k, v] of Object.entries(obj)) {
@@ -847,7 +870,14 @@
       // 파일 순차 업로드 (directUrl이 있으면 업로드 없이 URL 직접 사용)
       const uploaded = [];
       for (const f of files) {
-        const cdnUrl = f.directUrl ?? await uploadFileToStorage(f.buffer, f.type);
+        let cdnUrl;
+        if (f.directUrl) {
+          cdnUrl = f.directUrl;
+        } else {
+          // chrome.tabs.sendMessage은 ArrayBuffer를 {}로 직렬화하므로 Array로 복원
+          const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
+          cdnUrl = await uploadFileToStorage(rawBuffer, f.type);
+        }
         uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
       }
 
@@ -857,10 +887,13 @@
       let existingFaces = [];
       if (getResp.ok) {
         const doc = await getResp.json();
-        existingFaces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => ({
-          name: v.mapValue?.fields?.name?.stringValue ?? "",
-          imageUrl: v.mapValue?.fields?.imageUrl?.stringValue ?? "",
-        }));
+        existingFaces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => {
+          const f = v.mapValue?.fields ?? {};
+          return {
+            name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+            imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+          };
+        });
       }
 
       // 병합 + 이름 중복 처리

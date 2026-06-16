@@ -1151,7 +1151,8 @@ document.getElementById("stdFileInput")?.addEventListener("change", async (e) =>
   try {
     const fileData = await Promise.all(files.map(async f => {
       const buffer = await f.arrayBuffer();
-      return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer };
+      const bufferArr = Array.from(new Uint8Array(buffer));
+      return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: bufferArr };
     }));
     const res = await chrome.tabs.sendMessage(tab.id, {
       type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
