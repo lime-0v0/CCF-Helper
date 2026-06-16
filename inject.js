@@ -170,14 +170,13 @@
       _contextPanelCache = data;
       console.log("[CCFHelper:ctx] cache result:", _contextPanelCache);
 
-      // 패널이 아닌 경우 캐릭터 피스 추출 시도
-      if (!_contextPanelCache) {
-        try {
-          _contextCharCache = _extractCharFromEl(e.target, e.clientX, e.clientY);
-          if (_contextCharCache) console.log("[CCFHelper:ctx] char cache:", _contextCharCache);
-        } catch (err) {
-          console.warn("[CCFHelper:ctx] char extraction error:", err);
-        }
+      // 캐릭터 추출은 패널 발견 여부와 무관하게 항상 시도
+      // (패널과 캐릭터가 겹쳐 있을 수 있음)
+      try {
+        _contextCharCache = _extractCharFromEl(e.target, e.clientX, e.clientY);
+        if (_contextCharCache) console.log("[CCFHelper:ctx] char cache:", _contextCharCache);
+      } catch (err) {
+        console.warn("[CCFHelper:ctx] char extraction error:", err);
       }
     } catch (err) {
       console.warn("[CCFHelper:ctx] extraction error:", err);
@@ -571,6 +570,20 @@
     if (event.data.action === "UPLOAD_STANDING") {
       const { requestId, roomId, charId, files } = event.data;
       uploadStandingImages(requestId, roomId, charId, files);
+      return;
+    }
+
+    // ── SCAN_MENU_FOR_CHAR: 현재 열린 메뉴 fiber에서 캐릭터 데이터 탐색 ──
+    // (contextmenu 시점 추출 실패 시 폴백 — 메뉴 컴포넌트 props에 캐릭터 데이터 있음)
+    if (event.data.action === "SCAN_MENU_FOR_CHAR") {
+      const { requestId } = event.data;
+      let charData = null;
+      const menus = document.querySelectorAll("[role='menu']");
+      for (let mi = menus.length - 1; mi >= 0 && !charData; mi--) {
+        charData = _extractCharFromEl(menus[mi], -1, -1);
+      }
+      console.log("[CCFHelper:menu-scan] result:", charData);
+      window.postMessage({ __ccfoliaHelper: true, action: "SCAN_MENU_RESULT", requestId, charData }, "*");
       return;
     }
 

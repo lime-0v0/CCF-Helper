@@ -311,6 +311,22 @@ function getCharDataFromInject() {
   });
 }
 
+function scanMenuForChar() {
+  return new Promise((resolve) => {
+    const requestId = `ccfh_scanmenu_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); resolve(null); }, 5000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "SCAN_MENU_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      resolve(event.data.charData ?? null);
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "SCAN_MENU_FOR_CHAR", requestId }, "*");
+  });
+}
+
 function readFileAsArrayBuffer(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -340,8 +356,10 @@ function uploadStandingViaInject(roomId, charId, files) {
 async function injectStandingButton(menu) {
   if (menu.querySelector(".ccfh-standing-btn")) return;
 
-  // charData 조회 (실패해도 버튼은 표시 — 클릭 시 재시도 or 오류 안내)
-  const charData = await getCharDataFromInject();
+  // 1차: contextmenu 시점 캐시에서 조회
+  let charData = await getCharDataFromInject();
+  // 2차 폴백: 메뉴 컴포넌트 fiber 직접 스캔 (패널과 캐릭터 겹침 등으로 1차 실패 시)
+  if (!charData) charData = await scanMenuForChar();
   if (!menu.isConnected) return;
 
   const btn = document.createElement("li");
