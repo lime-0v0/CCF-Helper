@@ -485,6 +485,35 @@
       return;
     }
 
+    // ── GET_CHAR_FACES: Firestore에서 캐릭터 faces 배열 읽기 ──
+    if (event.data.action === "GET_CHAR_FACES") {
+      const { requestId, roomId, charId } = event.data;
+      (async () => {
+        try {
+          await new Promise((resolve) => {
+            try {
+              const user = window.firebase?.auth?.()?.currentUser;
+              if (user?.getIdToken) user.getIdToken().then((t) => { authToken = t; resolve(); }).catch(resolve);
+              else resolve();
+            } catch (_) { resolve(); }
+          });
+          if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
+          const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+          const resp = await _fetch(charUrl, { headers: { "Authorization": `Bearer ${authToken}` } });
+          if (!resp.ok) throw new Error(`Firestore ${resp.status}`);
+          const doc = await resp.json();
+          const faces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => ({
+            name: v.mapValue?.fields?.name?.stringValue ?? "",
+            imageUrl: v.mapValue?.fields?.imageUrl?.stringValue ?? "",
+          }));
+          window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces }, "*");
+        } catch (err) {
+          window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: false, error: err.message }, "*");
+        }
+      })();
+      return;
+    }
+
     // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
     if (event.data.action === "GET_PANEL_DATA") {
       const { requestId } = event.data;
@@ -529,10 +558,46 @@
   });
 
   // ── 캐릭터 편집 다이얼로그 fiber 스캔 ──────────────────────────────────
+
+  // 자식 방향(child/sibling) 반복 탐색 — 캐릭터 데이터는 다이얼로그 하위 컴포넌트에 위치
+  function _walkFiberDown(startFiber) {
+    let first = startFiber.child;
+    if (!first) return null;
+    const stack = [first];
+    const visited = new Set();
+    let count = 0;
+    while (stack.length && count < 2000) {
+      const fiber = stack.pop();
+      if (!fiber || visited.has(fiber)) continue;
+      visited.add(fiber);
+      count++;
+      if (!_cachedReduxStore) {
+        const val = fiber.memoizedProps?.value;
+        if (val?.store?.getState) { _cachedReduxStore = val.store; }
+      }
+      const r = _matchCharProps(fiber.memoizedProps);
+      if (r) return r;
+      let hs = fiber.memoizedState; let hi = 0;
+      while (hs && hi < 8) {
+        const sv = hs.memoizedState;
+        if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+          const r2 = _matchCharProps(sv);
+          if (r2) return r2;
+        }
+        hs = hs.next; hi++;
+      }
+      if (fiber.sibling) stack.push(fiber.sibling);
+      if (fiber.child)   stack.push(fiber.child);
+    }
+    return null;
+  }
+
   function _extractCharFromDialog(el) {
     const fkey = Object.keys(el).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
     if (!fkey) return null;
-    let fiber = el[fkey];
+    const startFiber = el[fkey];
+    // 상위 방향 탐색 (Redux Store 캡처 포함)
+    let fiber = startFiber;
     for (let i = 0; fiber && i < 150; i++, fiber = fiber.return) {
       if (!_cachedReduxStore) {
         const val = fiber.memoizedProps?.value;
@@ -550,7 +615,8 @@
         hs = hs.next; hi++;
       }
     }
-    return null;
+    // 하위 방향 탐색 (캐릭터 편집 컴포넌트는 dialog 엘리먼트의 하위에 존재)
+    return _walkFiberDown(startFiber);
   }
 
   function _matchCharProps(props) {

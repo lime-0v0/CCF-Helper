@@ -918,12 +918,29 @@ document.getElementById("importAllInput")?.addEventListener("change", async (e) 
 
 let _stdCharId = null;
 let _stdCharName = null;
+let _pendingUrlPackId = null;
 
-async function getStandingLib() {
-  return new Promise(r => chrome.storage.local.get({ standingLib: [] }, d => r(d.standingLib)));
+async function getStandingPacks() {
+  return new Promise(r => chrome.storage.local.get({ standingPacks: null, standingLib: [] }, d => {
+    if (d.standingPacks !== null) { r(d.standingPacks); return; }
+    // 기존 standingLib → 기본 팩으로 마이그레이션
+    const lib = d.standingLib ?? [];
+    if (lib.length > 0) {
+      const packs = [{ id: "sp_default", name: "기본 팩", items: lib.map(i => ({ name: i.name, imageUrl: i.imageUrl })) }];
+      chrome.storage.local.set({ standingPacks: packs });
+      r(packs);
+    } else {
+      r([]);
+    }
+  }));
 }
-async function saveStandingLib(lib) {
-  return new Promise(r => chrome.storage.local.set({ standingLib: lib }, r));
+
+async function saveStandingPacks(packs) {
+  return new Promise(r => chrome.storage.local.set({ standingPacks: packs }, r));
+}
+
+function genStdPackId() {
+  return "sp_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
 }
 
 async function getCcfoliaTab() {
@@ -943,7 +960,8 @@ async function getCcfoliaTab() {
 
 async function initStandingTab() {
   const nameEl = document.getElementById("stdCharName");
-  const uploadSection = document.getElementById("stdUploadSection");
+  const uploadBtn = document.getElementById("stdUploadBtn");
+  const savePackBtn = document.getElementById("stdSavePackBtn");
   nameEl.textContent = "감지 중...";
   nameEl.className = "std-char-name";
 
@@ -959,59 +977,155 @@ async function initStandingTab() {
     _stdCharName = charData.name || "(이름 없음)";
     nameEl.textContent = `캐릭터: ${_stdCharName}`;
     nameEl.className = "std-char-name detected";
-    uploadSection.style.display = "block";
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.textContent = "📁 파일에서 추가"; }
+    if (savePackBtn) savePackBtn.disabled = false;
   } else {
     _stdCharId = null; _stdCharName = null;
     nameEl.textContent = tab ? "캐릭터 편집 화면을 열어 주세요" : "ccfolia 방 탭이 없습니다";
-    uploadSection.style.display = "none";
+    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = "📁 파일에서 추가"; }
+    if (savePackBtn) savePackBtn.disabled = true;
   }
-  await renderStandingLib();
+  await renderStandingPacks();
 }
 
-async function renderStandingLib() {
-  const lib = await getStandingLib();
-  const listEl = document.getElementById("stdLibList");
-  if (!lib.length) {
-    listEl.innerHTML = `<div class="std-lib-empty">저장된 스탠딩이 없습니다.</div>`;
+async function renderStandingPacks() {
+  const packs = await getStandingPacks();
+  const listEl = document.getElementById("stdPackList");
+  if (!listEl) return;
+
+  if (!packs.length) {
+    listEl.innerHTML = `<div class="std-lib-empty">저장된 팩이 없습니다.<br>팩 만들기 또는 현재 스탠딩 저장으로 추가하세요.</div>`;
     return;
   }
-  listEl.innerHTML = lib.map(item => `
-    <div class="std-lib-item" data-id="${item.id}">
-      ${item.imageUrl
-        ? `<img class="std-lib-thumb" src="${item.imageUrl}" alt="" loading="lazy">`
-        : `<div class="std-lib-thumb-placeholder"></div>`}
-      <span class="std-lib-name" title="${item.name}">${item.name}</span>
-      <div class="std-lib-actions">
-        <button class="std-apply-btn" data-id="${item.id}" ${_stdCharId ? "" : "disabled"}>▶</button>
-        <button class="std-del-btn" data-id="${item.id}" title="삭제">✕</button>
-      </div>
-    </div>
-  `).join("");
 
-  listEl.querySelectorAll(".std-apply-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
+  listEl.innerHTML = "";
+  packs.forEach((pack) => {
+    const packEl = document.createElement("div");
+    packEl.className = "std-pack open";
+    packEl.dataset.id = pack.id;
+
+    const disabledAttr = _stdCharId ? "" : "disabled";
+
+    packEl.innerHTML = `
+      <div class="std-pack-header">
+        <span class="std-pack-arrow">▶</span>
+        <span class="std-pack-name">${escapeHtml(pack.name)}</span>
+        <div class="std-pack-actions">
+          <button class="std-pack-apply-btn" title="전체 캐릭터에 적용" ${disabledAttr}>▶</button>
+          <button class="std-pack-del-btn" title="팩 삭제">✕</button>
+        </div>
+      </div>
+      <div class="std-pack-items">
+        ${pack.items.length === 0
+          ? '<div class="std-lib-empty">항목 없음</div>'
+          : pack.items.map((item, idx) => `
+            <div class="std-lib-item">
+              ${item.imageUrl
+                ? `<img class="std-lib-thumb" src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+                : `<div class="std-lib-thumb-placeholder"></div>`}
+              <span class="std-lib-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+              <div class="std-lib-actions">
+                <button class="std-apply-btn std-item-apply-btn" data-pack-id="${escapeHtml(pack.id)}" data-idx="${idx}" ${disabledAttr}>▶</button>
+                <button class="std-del-btn std-item-del-btn" data-pack-id="${escapeHtml(pack.id)}" data-idx="${idx}" title="삭제">✕</button>
+              </div>
+            </div>
+          `).join("")}
+        <div style="padding:4px 8px">
+          <button class="std-pack-add-url-btn" data-pack-id="${escapeHtml(pack.id)}">+ URL 추가</button>
+        </div>
+      </div>
+    `;
+
+    packEl.querySelector(".std-pack-header").addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      packEl.classList.toggle("open");
+    });
+
+    // 팩 전체 적용
+    const applyAllBtn = packEl.querySelector(".std-pack-apply-btn");
+    applyAllBtn?.addEventListener("click", async (e) => {
+      e.stopPropagation();
       if (!_stdCharId) return;
-      const item = lib.find(i => i.id === btn.dataset.id);
-      if (!item) return;
+      if (pack.items.length === 0) { showPopupToast("항목 없음"); return; }
       const tab = await getCcfoliaTab();
       if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
-      const faceName = "@" + item.name.replace(/^@+/, "");
+      const orig = applyAllBtn.textContent;
+      applyAllBtn.textContent = "⏳"; applyAllBtn.disabled = true;
       try {
+        const files = pack.items.map(item => ({
+          faceName: "@" + item.name.replace(/^@+/, ""),
+          directUrl: item.imageUrl,
+        }));
         const res = await chrome.tabs.sendMessage(tab.id, {
-          type: "ADD_STANDING_URL_FROM_POPUP", charId: _stdCharId, faceName, imageUrl: item.imageUrl,
+          type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files,
         });
-        if (res?.ok) showPopupToast(`"${item.name}" 적용됨!`);
+        if (res?.ok) showPopupToast(`"${pack.name}" 팩 ${res.count}개 적용됨!`);
         else showPopupToast(`실패: ${res?.error ?? "오류"}`);
-      } catch (e) { showPopupToast("오류: " + e.message); }
+      } catch (err) { showPopupToast("오류: " + err.message); }
+      applyAllBtn.textContent = orig; applyAllBtn.disabled = !_stdCharId;
     });
-  });
 
-  listEl.querySelectorAll(".std-del-btn").forEach(btn => {
-    btn.addEventListener("click", async () => {
-      const newLib = lib.filter(i => i.id !== btn.dataset.id);
-      await saveStandingLib(newLib);
-      await renderStandingLib();
+    // 팩 삭제
+    packEl.querySelector(".std-pack-del-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!confirm(`"${pack.name}" 팩을 삭제할까요?`)) return;
+      const ps = await getStandingPacks();
+      await saveStandingPacks(ps.filter(p => p.id !== pack.id));
+      renderStandingPacks();
     });
+
+    // 개별 항목 적용
+    packEl.querySelectorAll(".std-item-apply-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!_stdCharId) return;
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === btn.dataset.packId);
+        const item = p?.items[parseInt(btn.dataset.idx)];
+        if (!item) return;
+        const tab = await getCcfoliaTab();
+        if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+        const faceName = "@" + item.name.replace(/^@+/, "");
+        try {
+          const res = await chrome.tabs.sendMessage(tab.id, {
+            type: "ADD_STANDING_URL_FROM_POPUP", charId: _stdCharId, faceName, imageUrl: item.imageUrl,
+          });
+          if (res?.ok) showPopupToast(`"${item.name}" 적용됨!`);
+          else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+        } catch (err) { showPopupToast("오류: " + err.message); }
+      });
+    });
+
+    // 개별 항목 삭제
+    packEl.querySelectorAll(".std-item-del-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === btn.dataset.packId);
+        if (!p) return;
+        p.items.splice(parseInt(btn.dataset.idx), 1);
+        await saveStandingPacks(ps);
+        renderStandingPacks();
+      });
+    });
+
+    // URL 추가 버튼 (팩 내)
+    packEl.querySelector(".std-pack-add-url-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _pendingUrlPackId = pack.id;
+      const form = document.getElementById("stdUrlForm");
+      const isOpen = form.style.display !== "none";
+      if (isOpen && _pendingUrlPackId === pack.id) {
+        form.style.display = "none";
+        _pendingUrlPackId = null;
+      } else {
+        document.getElementById("stdUrlNameInput").value = "";
+        document.getElementById("stdUrlImageInput").value = "";
+        form.style.display = "block";
+      }
+    });
+
+    listEl.appendChild(packEl);
   });
 }
 
@@ -1020,12 +1134,16 @@ document.getElementById("stdRefreshBtn")?.addEventListener("click", initStanding
 
 // 파일 업로드
 document.getElementById("stdUploadBtn")?.addEventListener("click", () => {
+  if (!_stdCharId) { showPopupToast("캐릭터를 먼저 감지해주세요"); return; }
   document.getElementById("stdFileInput").click();
 });
 document.getElementById("stdFileInput")?.addEventListener("change", async (e) => {
   const files = [...e.target.files];
   e.target.value = "";
-  if (!files.length || !_stdCharId) return;
+  if (!files.length || !_stdCharId) {
+    if (!_stdCharId) showPopupToast("캐릭터를 먼저 감지해주세요");
+    return;
+  }
   const tab = await getCcfoliaTab();
   if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
 
@@ -1043,27 +1161,69 @@ document.getElementById("stdFileInput")?.addEventListener("change", async (e) =>
   } catch (err) { showPopupToast("오류: " + err.message); }
 });
 
-// URL 추가 폼
-document.getElementById("stdAddUrlBtn")?.addEventListener("click", () => {
-  const form = document.getElementById("stdUrlForm");
-  form.style.display = form.style.display === "none" ? "block" : "none";
+// 현재 스탠딩 저장 (캐릭터 faces → 팩)
+document.getElementById("stdSavePackBtn")?.addEventListener("click", async () => {
+  if (!_stdCharId) { showPopupToast("캐릭터를 먼저 감지해주세요"); return; }
+  const tab = await getCcfoliaTab();
+  if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+  showPopupToast("스탠딩 읽는 중...");
+  let faces;
+  try {
+    const res = await chrome.tabs.sendMessage(tab.id, { type: "GET_CHAR_FACES_FROM_POPUP", charId: _stdCharId });
+    if (!res?.ok) throw new Error(res?.error ?? "오류");
+    faces = res.faces ?? [];
+  } catch (err) { showPopupToast("오류: " + err.message); return; }
+  if (faces.length === 0) { showPopupToast("저장된 스탠딩이 없습니다"); return; }
+  const packName = prompt(`팩 이름을 입력하세요 (${faces.length}개 스탠딩)`, _stdCharName || "새 팩");
+  if (!packName?.trim()) return;
+  const packs = await getStandingPacks();
+  packs.push({ id: genStdPackId(), name: packName.trim(), items: faces.map(f => ({ name: f.name, imageUrl: f.imageUrl })) });
+  await saveStandingPacks(packs);
+  await renderStandingPacks();
+  showPopupToast(`"${packName.trim()}" 팩 저장됨! (${faces.length}개)`);
 });
+
+// + 팩 만들기
+document.getElementById("stdNewPackBtn")?.addEventListener("click", async () => {
+  const name = prompt("새 팩 이름:", "새 팩");
+  if (!name?.trim()) return;
+  const packs = await getStandingPacks();
+  packs.push({ id: genStdPackId(), name: name.trim(), items: [] });
+  await saveStandingPacks(packs);
+  await renderStandingPacks();
+  showPopupToast(`"${name.trim()}" 팩 만들기 완료!`);
+});
+
+// URL 추가 폼 취소
 document.getElementById("stdUrlCancelBtn")?.addEventListener("click", () => {
   document.getElementById("stdUrlForm").style.display = "none";
   document.getElementById("stdUrlNameInput").value = "";
   document.getElementById("stdUrlImageInput").value = "";
+  _pendingUrlPackId = null;
 });
+
+// URL 추가 저장
 document.getElementById("stdUrlSaveBtn")?.addEventListener("click", async () => {
   const name = document.getElementById("stdUrlNameInput").value.trim();
   const imageUrl = document.getElementById("stdUrlImageInput").value.trim();
   if (!name) { alert("이름을 입력해주세요."); return; }
   if (!imageUrl) { alert("이미지 URL을 입력해주세요."); return; }
-  const lib = await getStandingLib();
-  lib.push({ id: "sl_" + Date.now().toString(36), name, imageUrl });
-  await saveStandingLib(lib);
+  const packs = await getStandingPacks();
+  let targetPack = packs.find(p => p.id === _pendingUrlPackId);
+  if (!targetPack) {
+    if (packs.length === 0) {
+      targetPack = { id: genStdPackId(), name: "기본 팩", items: [] };
+      packs.push(targetPack);
+    } else {
+      targetPack = packs[0];
+    }
+  }
+  targetPack.items.push({ name, imageUrl });
+  await saveStandingPacks(packs);
   document.getElementById("stdUrlForm").style.display = "none";
   document.getElementById("stdUrlNameInput").value = "";
   document.getElementById("stdUrlImageInput").value = "";
-  await renderStandingLib();
+  _pendingUrlPackId = null;
+  await renderStandingPacks();
   showPopupToast(`"${name}" 저장됨!`);
 });

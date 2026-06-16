@@ -717,6 +717,55 @@
   .std-del-btn:hover { color: #ef5350; border-color: #ef5350; }
   .std-lib-empty { font-size: 11px; color: #555; text-align: center; padding: 12px 0; }
 
+  /* ── 스탠딩 팩 ── */
+  .std-pack {
+    margin-bottom: 4px;
+    border: 1px solid #2a2a2a;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .std-pack-header {
+    display: flex; align-items: center; padding: 5px 8px;
+    background: #222; cursor: pointer; user-select: none; gap: 6px;
+  }
+  .std-pack-header:hover { background: #2a2a2a; }
+  .std-pack-arrow { font-size: 11px; color: #555; transition: transform 0.15s; flex-shrink: 0; }
+  .std-pack.open .std-pack-arrow { transform: rotate(90deg); }
+  .std-pack-name { flex: 1; font-size: 11px; font-weight: 600; color: #ccc;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .std-pack-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+  .std-pack-actions button {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 13px; padding: 0 2px; line-height: 1;
+  }
+  .std-pack-apply-btn {
+    color: #80cbc4 !important;
+    border: 1px solid #80cbc4 !important;
+    border-radius: 3px !important;
+    padding: 1px 5px !important;
+    font-size: 11px !important;
+    font-family: inherit !important;
+  }
+  .std-pack-apply-btn:hover:not(:disabled) { background: rgba(128,203,196,0.15) !important; }
+  .std-pack-apply-btn:disabled { color: #333 !important; border-color: #2a2a2a !important; cursor: default !important; }
+  .std-pack-del-btn:hover { color: #ef5350 !important; }
+  .std-pack-items { display: none; padding: 3px 0; background: #1a1a1a; }
+  .std-pack.open .std-pack-items { display: block; }
+  .std-pack-add-url-btn {
+    background: none; border: 1px solid #444; border-radius: 4px;
+    color: #aaa; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    font-family: inherit; transition: border-color 0.15s, color 0.15s;
+  }
+  .std-pack-add-url-btn:hover { border-color: #80cbc4; color: #80cbc4; }
+  .std-upload-btn:disabled { color: #444; border-color: #333; cursor: default; }
+  .std-save-pack-btn {
+    background: rgba(128,203,196,0.1); border: 1px solid #80cbc4; border-radius: 4px;
+    color: #80cbc4; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    font-family: inherit; transition: background 0.15s;
+  }
+  .std-save-pack-btn:hover:not(:disabled) { background: rgba(128,203,196,0.2); }
+  .std-save-pack-btn:disabled { color: #444; border-color: #333; cursor: default; }
+
 </style>
 </head>
 <body>
@@ -724,7 +773,7 @@
 <div class="header">
   <div class="header-icon">C</div>
   <span class="header-title">Ccfolia Helper</span>
-  <span class="header-sub">v1.6.0</span>
+  <span class="header-sub">v1.7.0</span>
 </div>
 
 <div class="tabs">
@@ -1086,18 +1135,23 @@
     <button class="std-refresh-btn" id="stdRefreshBtn" title="재감지">↻</button>
   </div>
 
-  <!-- 파일 업로드 (캐릭터 감지 시 표시) -->
-  <div class="std-section" id="stdUploadSection" style="display:none">
-    <button class="std-upload-btn" id="stdUploadBtn">📁 파일에서 추가</button>
+  <!-- 파일 업로드 (항상 표시, 캐릭터 미감지 시 비활성화) -->
+  <div class="std-section" id="stdUploadSection">
+    <button class="std-upload-btn" id="stdUploadBtn" disabled>📁 파일에서 추가</button>
     <input type="file" id="stdFileInput" accept="image/*" multiple style="display:none">
   </div>
 
-  <!-- 라이브러리 -->
+  <!-- 스탠딩 팩 -->
   <div class="std-section">
     <div class="std-lib-header">
-      <span class="std-lib-title">라이브러리</span>
-      <button class="std-add-url-btn" id="stdAddUrlBtn">+ URL 추가</button>
+      <span class="std-lib-title">스탠딩 팩</span>
+      <div style="display:flex;gap:4px">
+        <button class="std-save-pack-btn" id="stdSavePackBtn" disabled title="현재 캐릭터의 스탠딩을 팩으로 저장">현재 스탠딩 저장</button>
+        <button class="std-pack-add-url-btn" id="stdNewPackBtn">+ 팩 만들기</button>
+      </div>
     </div>
+
+    <!-- URL 추가 폼 (팩 내 항목 추가용) -->
     <div class="std-url-form" id="stdUrlForm" style="display:none">
       <input type="text" id="stdUrlNameInput" placeholder="이름 (예: 미소)">
       <input type="text" id="stdUrlImageInput" placeholder="이미지 URL">
@@ -1106,8 +1160,9 @@
         <button class="primary" id="stdUrlSaveBtn">저장</button>
       </div>
     </div>
-    <div class="std-lib-list" id="stdLibList">
-      <div class="std-lib-empty">저장된 스탠딩이 없습니다.</div>
+
+    <div id="stdPackList">
+      <div class="std-lib-empty">저장된 팩이 없습니다.</div>
     </div>
   </div>
 
@@ -1118,7 +1173,7 @@
   <div class="info-hero">
     <div class="info-hero-icon">C</div>
     <div class="info-hero-name">Ccfolia Helper</div>
-    <div class="info-hero-ver">v1.6.0</div>
+    <div class="info-hero-ver">v1.7.0</div>
     <div class="info-hero-desc">ccfolia.com 마커 · 스크린 패널 생성 도우미</div>
   </div>
   <div class="info-row">

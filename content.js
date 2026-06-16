@@ -272,6 +272,13 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+  if (msg.type === "GET_CHAR_FACES_FROM_POPUP") {
+    const roomId = getRoomId();
+    getCharFacesViaInject(roomId, msg.charId)
+      .then(faces => sendResponse({ ok: true, faces }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 });
 
 // ── 우클릭 메뉴 → 즐겨찾기 추가 기능 ─────────────────────────────────
@@ -371,6 +378,23 @@ function addStandingUrlViaInject(roomId, charId, faceName, imageUrl) {
     }
     window.addEventListener("message", onMsg);
     window.postMessage({ __ccfoliaHelper: true, action: "ADD_STANDING_URL", requestId, roomId, charId, faceName, imageUrl }, "*");
+  });
+}
+
+function getCharFacesViaInject(roomId, charId) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_faces_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 10000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "GET_CHAR_FACES_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve(event.data.faces);
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES", requestId, roomId, charId }, "*");
   });
 }
 
