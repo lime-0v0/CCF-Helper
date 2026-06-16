@@ -368,16 +368,18 @@ function nudgeMenuUp(menu) {
 }
 
 // MutationObserver: ccfolia의 [role="menu"] 등장 감지
+// 우클릭(contextmenu)으로 열린 메뉴에만 버튼 주입 — 드롭다운 오염 방지
+let _contextMenuFired = false;
+document.addEventListener("contextmenu", () => { _contextMenuFired = true; }, true);
 const _ctxObserver = new MutationObserver((mutations) => {
   for (const mut of mutations) {
     for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
       if (node.getAttribute?.("role") === "menu") {
-        injectFavButton(node);
-        nudgeMenuUp(node);
+        if (_contextMenuFired) { _contextMenuFired = false; injectFavButton(node); nudgeMenuUp(node); }
       } else {
         const menu = node.querySelector?.("[role='menu']");
-        if (menu) { injectFavButton(menu); nudgeMenuUp(menu); }
+        if (menu && _contextMenuFired) { _contextMenuFired = false; injectFavButton(menu); nudgeMenuUp(menu); }
       }
     }
   }
