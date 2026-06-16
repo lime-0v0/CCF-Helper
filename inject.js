@@ -458,13 +458,33 @@
       let charData = null;
       // "Standing Image" 텍스트를 포함한 다이얼로그 우선, 없으면 전체 다이얼로그 스캔
       const dialogs = [...document.querySelectorAll("[role='dialog']")];
+      const charDialogs = dialogs.filter(d =>
+        d.textContent.includes("Standing") || d.textContent.includes("Difference") || d.textContent.includes("Character editing")
+      );
       const targets = [
-        ...dialogs.filter(d => d.textContent.includes("Standing") || d.textContent.includes("Difference")),
-        ...dialogs.filter(d => !d.textContent.includes("Standing") && !d.textContent.includes("Difference")),
+        ...charDialogs,
+        ...dialogs.filter(d => !charDialogs.includes(d)),
       ];
+
+      // Redux store 미캐시 상태라면 document.body fiber에서도 탐색
+      if (!_cachedReduxStore && document.body) {
+        const bkey = Object.keys(document.body).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+        if (bkey) {
+          let f = document.body[bkey];
+          for (let i = 0; f && i < 200; i++, f = f.return) {
+            const val = f.memoizedProps?.value;
+            if (val?.store?.getState) { _cachedReduxStore = val.store; console.log("[CCFHelper:dialog-scan] body-walk Redux store cached ✓"); break; }
+          }
+        }
+      }
+
       for (const dialog of targets) {
         charData = _extractCharFromDialog(dialog);
         if (charData) break;
+      }
+      // fallback: Redux store 직접 탐색 (fiber walk로 못 찾은 경우)
+      if (!charData) {
+        charData = _findCharInRedux(targets[0] ?? null);
       }
       console.log("[CCFHelper:dialog-scan] result:", charData);
       window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
@@ -596,17 +616,17 @@
     const fkey = Object.keys(el).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
     if (!fkey) return null;
     const startFiber = el[fkey];
-    // 상위 방향 탐색 (Redux Store 캡처 포함)
+    // 상위 방향 탐색 — step 수를 500으로 늘려 Redux Provider까지 확실히 도달
     let fiber = startFiber;
-    for (let i = 0; fiber && i < 150; i++, fiber = fiber.return) {
+    for (let i = 0; fiber && i < 500; i++, fiber = fiber.return) {
       if (!_cachedReduxStore) {
         const val = fiber.memoizedProps?.value;
-        if (val?.store?.getState) { _cachedReduxStore = val.store; }
+        if (val?.store?.getState) { _cachedReduxStore = val.store; console.log("[CCFHelper:dialog-scan] Redux store cached ✓"); }
       }
       const r = _matchCharProps(fiber.memoizedProps);
       if (r) return r;
       let hs = fiber.memoizedState; let hi = 0;
-      while (hs && hi < 12) {
+      while (hs && hi < 30) {
         const sv = hs.memoizedState;
         if (sv && typeof sv === "object" && !Array.isArray(sv)) {
           const r2 = _matchCharProps(sv);
@@ -617,6 +637,45 @@
     }
     // 하위 방향 탐색 (캐릭터 편집 컴포넌트는 dialog 엘리먼트의 하위에 존재)
     return _walkFiberDown(startFiber);
+  }
+
+  // Redux store에서 캐릭터 데이터 탐색 (dialog DOM에서 이름 힌트 추출)
+  function _findCharInRedux(dialogEl) {
+    if (!_cachedReduxStore) return null;
+    try {
+      const state = _cachedReduxStore.getState();
+      // dialog 내 첫 번째 input의 값 → 캐릭터 이름 힌트
+      const nameHint = dialogEl?.querySelector("input")?.value?.trim() ?? "";
+      const chars = [];
+      const seen = new Set();
+      function collect(obj, depth) {
+        if (depth > 7 || !obj || typeof obj !== "object" || seen.has(obj)) return;
+        seen.add(obj);
+        if (Array.isArray(obj)) { for (const v of obj) collect(v, depth + 1); return; }
+        const id = obj.id;
+        if (typeof id === "string" && id.length >= 15 && Array.isArray(obj.faces)) {
+          chars.push(obj); return;
+        }
+        for (const v of Object.values(obj)) {
+          if (v && typeof v === "object") collect(v, depth + 1);
+        }
+      }
+      collect(state, 0);
+      console.log("[CCFHelper:dialog-scan] Redux chars:", chars.length, "nameHint:", nameHint);
+      if (!chars.length) return null;
+      if (chars.length === 1) return { id: chars[0].id, name: String(chars[0].name ?? "").trim() };
+      if (nameHint) {
+        const m = chars.find(c => {
+          const n = String(c.name ?? "");
+          return n === nameHint || n.includes(nameHint) || nameHint.includes(n);
+        });
+        if (m) return { id: m.id, name: String(m.name ?? "").trim() };
+      }
+      return { id: chars[0].id, name: String(chars[0].name ?? "").trim() };
+    } catch (e) {
+      console.warn("[CCFHelper:dialog-scan] Redux char lookup error:", e);
+      return null;
+    }
   }
 
   function _matchCharProps(props) {
