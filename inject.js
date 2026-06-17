@@ -541,18 +541,25 @@
         return;
       }
 
-      // ── addTarget 인터셉터 캐시: nameHint 검증 없이 신뢰 ──
-      // addTarget → Firestore REST로 직접 취득한 id+name이므로 nameHint보다 정확
+      // ── addTarget 인터셉터 캐시 확인 ──
+      // _dialogNameHint가 MuiTypography span을 우선 읽으므로 이제 신뢰할 수 있음
+      // → 캐시 이름과 다이얼로그 표시 이름이 일치하면 즉시 반환, 불일치면 캐시 무효화
       if (_lastEditedChar?.id) {
         if (_lastEditedChar.name) {
-          // id + name 모두 있으면 즉시 반환
-          charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
-          console.log("[CCFHelper:dialog-scan] cache hit:", charData);
-          window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
-          return;
-        }
-        // id는 있지만 async fetch가 아직 완료되지 않음 → 직접 동기 fetch
-        {
+          const primaryDialogForCheck = targets[0] ?? null;
+          const nameHint = _dialogNameHint(primaryDialogForCheck);
+          if (!nameHint || _lastEditedChar.name === nameHint) {
+            // 다이얼로그 이름이 없거나 캐시와 일치 → 캐시 신뢰
+            charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
+            console.log("[CCFHelper:dialog-scan] cache hit:", charData);
+            window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+            return;
+          }
+          // 다이얼로그에 다른 캐릭터 이름이 표시됨 → 캐시 무효화 후 재탐색
+          console.log("[CCFHelper:dialog-scan] cache mismatch:", _lastEditedChar.name, "≠", nameHint, "— invalidating");
+          _lastEditedChar = null;
+        } else {
+          // id는 있지만 name이 아직 없음 (async fetch 진행 중) → 직접 동기 fetch
           const charId = _lastEditedChar.id;
           const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
           if (roomId && authToken) {
