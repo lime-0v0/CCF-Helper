@@ -6,8 +6,12 @@
   "permissions": [
     "clipboardRead",
     "storage",
-    "tabs"
+    "tabs",
+    "sidePanel"
   ],
+  "side_panel": {
+    "default_path": "popup.html"
+  },
   "host_permissions": [
     "https://ccfolia.com/rooms/*"
   ],

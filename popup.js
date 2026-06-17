@@ -845,23 +845,40 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
-// ── 핀업 (새 창으로 고정) ──────────────────────────────────────────────
+// ── 핀업 (사이드 패널로 고정) ────────────────────────────────────────
 (function initPinBtn() {
   const pinBtn = document.getElementById("pinBtn");
   if (!pinBtn) return;
-  const isPinned = new URLSearchParams(window.location.search).has("pinned");
-  if (isPinned) {
+
+  // 사이드 패널 여부 감지 (사이드 패널에서 열리면 window.outerWidth >> 300)
+  const isSidePanel = typeof chrome.sidePanel !== "undefined" &&
+    document.documentElement.classList.contains("side-panel-mode");
+
+  if (isSidePanel) {
     pinBtn.classList.add("pinned");
-    pinBtn.title = "이미 고정된 창입니다";
-  } else {
-    pinBtn.addEventListener("click", () => {
-      const activeTab = document.querySelector(".tab.active")?.dataset?.tab ?? "";
-      const url = chrome.runtime.getURL("popup.html") + `?pinned=1${activeTab ? "&tab=" + activeTab : ""}`;
-      chrome.windows.create({ url, type: "popup", width: 340, height: 600, focused: true });
-      window.close();
-    });
+    pinBtn.title = "사이드 패널로 고정됨";
+    return;
   }
-  // 핀된 창에서 초기 탭 복원
+
+  pinBtn.addEventListener("click", async () => {
+    if (chrome.sidePanel?.open) {
+      try {
+        const win = await chrome.windows.getCurrent();
+        await chrome.sidePanel.open({ windowId: win.id });
+        window.close();
+        return;
+      } catch (e) {
+        console.warn("[CCFHelper] sidePanel.open failed:", e);
+      }
+    }
+    // Fallback: 별도 팝업 창
+    const activeTab = document.querySelector(".tab.active")?.dataset?.tab ?? "";
+    const url = chrome.runtime.getURL("popup.html") + `?pinned=1${activeTab ? "&tab=" + activeTab : ""}`;
+    chrome.windows.create({ url, type: "popup", width: 340, height: 600, focused: true });
+    window.close();
+  });
+
+  // 핀된 창(fallback window)에서 초기 탭 복원
   const initialTab = new URLSearchParams(window.location.search).get("tab");
   if (initialTab) {
     const tabEl = document.querySelector(`[data-tab="${initialTab}"]`);
@@ -1017,9 +1034,10 @@ async function renderStandingPacks() {
   const listEl = document.getElementById("stdPackList");
   if (!listEl) return;
 
-  // 재렌더 전 현재 열린/닫힌 상태 저장
+  // 재렌더 전 현재 열린/닫힌 상태 저장 (첫 렌더링 시 existingPackIds가 비어있음 → 모두 닫힌 상태 시작)
   const existingPackIds = new Set([...listEl.querySelectorAll(".std-pack")].map(el => el.dataset.id));
   const openPackIds = new Set([...listEl.querySelectorAll(".std-pack.open")].map(el => el.dataset.id));
+  const isFirstRender = existingPackIds.size === 0;
 
   if (!packs.length) {
     listEl.innerHTML = `<div class="std-lib-empty">저장된 팩이 없습니다.<br>팩 만들기 또는 현재 스탠딩 저장으로 추가하세요.</div>`;
@@ -1029,8 +1047,8 @@ async function renderStandingPacks() {
   listEl.innerHTML = "";
   packs.forEach((pack) => {
     const packEl = document.createElement("div");
-    // 처음 렌더링이거나 새로 만든 팩이면 열린 상태, 기존 팩은 이전 상태 복원
-    const shouldOpen = !existingPackIds.has(pack.id) || openPackIds.has(pack.id);
+    // 첫 렌더링: 모두 닫힘 / 재렌더링: 새 팩은 열림, 기존 팩은 이전 상태 복원
+    const shouldOpen = !isFirstRender && (!existingPackIds.has(pack.id) || openPackIds.has(pack.id));
     packEl.className = `std-pack${shouldOpen ? " open" : ""}`;
     packEl.dataset.id = pack.id;
 

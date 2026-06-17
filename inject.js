@@ -133,6 +133,40 @@
               console.log("[CCFHelper:xhr] char cached:", _lastEditedChar.id, _lastEditedChar.name);
             }
           }
+          // addTarget (Edit 다이얼로그 열릴 때 Firestore Listen 요청) → 캐릭터 ID 즉시 포착
+          for (const docPath of data.addTarget?.documents?.documents ?? []) {
+            const m = docPath.match(/\/characters\/([^/]+)$/);
+            if (m) {
+              const charId = m[1];
+              console.log("[CCFHelper:xhr] Listen target for char:", charId);
+              if (_lastEditedChar?.id !== charId) {
+                _lastEditedChar = { id: charId, name: "", faces: [] };
+                const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+                if (roomId && authToken) {
+                  const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+                  _fetch(charUrl, { headers: { Authorization: `Bearer ${authToken}` } })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(doc => {
+                      if (doc?.fields && _lastEditedChar?.id === charId) {
+                        _lastEditedChar = {
+                          id: charId,
+                          name: doc.fields.name?.stringValue ?? "",
+                          faces: (doc.fields.faces?.arrayValue?.values ?? []).map(v => {
+                            const f = v.mapValue?.fields ?? {};
+                            return {
+                              name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                              imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
+                            };
+                          }),
+                        };
+                        console.log("[CCFHelper:xhr] Listen char data ready:", charId, _lastEditedChar.name);
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }
+            }
+          }
         }
       } catch (_) {}
     }
@@ -512,7 +546,7 @@
         const primaryDialogForCheck = targets[0] ?? null;
         const nameHint = _dialogNameHint(primaryDialogForCheck);
         // nameHint가 없거나 캐시 이름과 일치하면 캐시 사용
-        const cacheValid = !nameHint || _lastEditedChar.name === nameHint;
+        const cacheValid = !!_lastEditedChar.name && (!nameHint || _lastEditedChar.name === nameHint);
         if (cacheValid) {
           charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
           console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
@@ -539,12 +573,25 @@
         if (charData) break;
       }
       const primaryDialog = targets[0] ?? null;
+      const nameHintFallback = _dialogNameHint(primaryDialog);
+      // 다이얼로그 이름 힌트와 불일치하면 폐기 (Redux 데이터에서 다른 캐릭터를 읽은 경우)
+      if (charData && nameHintFallback && charData.name !== nameHintFallback) {
+        console.log("[CCFHelper:dialog-scan] fiber mismatch:", charData.name, "≠", nameHintFallback, "— discarding");
+        charData = null;
+      }
       // fallback 1: Redux store 직접 탐색 (패턴 A+B)
       if (!charData) charData = _findCharInRedux(primaryDialog);
       // fallback 2: fiber.key / characterId prop 탐색
       if (!charData && primaryDialog) {
         const fkey2 = Object.keys(primaryDialog).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
-        if (fkey2) charData = _findCharByFiberKey(primaryDialog[fkey2]);
+        if (fkey2) {
+          const fkResult = _findCharByFiberKey(primaryDialog[fkey2]);
+          if (fkResult && (!nameHintFallback || fkResult.name === nameHintFallback)) {
+            charData = fkResult;
+          } else if (fkResult) {
+            console.log("[CCFHelper:dialog-scan] fiberKey mismatch:", fkResult.name, "≠", nameHintFallback);
+          }
+        }
       }
       // fallback 3: Firestore REST API — 캐릭터 목록 조회 후 이름 매칭
       if (!charData) {
@@ -802,10 +849,12 @@
       if (!chars.length) return null;
       if (chars.length === 1) return chars[0];
       if (nameHint) {
-        const m = chars.find(c => c.name === nameHint || c.name.includes(nameHint) || nameHint.includes(c.name));
-        if (m) return m;
+        const exact = chars.find(c => c.name === nameHint);
+        if (exact) return exact;
+        const partials = chars.filter(c => c.name.includes(nameHint) || nameHint.includes(c.name));
+        if (partials.length === 1) return partials[0];
       }
-      return chars[0];
+      return null; // 모호한 경우 Firestore REST fallback으로 위임
     } catch (e) {
       console.warn("[CCFHelper:dialog-scan] Redux char lookup error:", e);
       return null;
