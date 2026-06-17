@@ -901,6 +901,9 @@
     });
     if (!resp.ok) throw new Error(`Upload ${resp.status}: ${await resp.text()}`);
     const data = await resp.json();
+    console.log("[CCFHelper:upload] raw CDN response:", JSON.stringify(data));
+    // CDN이 url 필드를 직접 반환하는 경우
+    if (typeof data.url === "string") return data.url;
     return `https://storage.ccfolia-cdn.net/${data.name}?t=${Math.floor(Number(data.generation) / 1000)}`;
   }
 
@@ -928,7 +931,7 @@
           const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
           console.log("[CCFHelper:upload] uploading:", f.faceName, f.type, "bufferLen:", rawBuffer.byteLength);
           cdnUrl = await uploadFileToStorage(rawBuffer, f.type);
-          console.log("[CCFHelper:upload] CDN URL:", cdnUrl.slice(0, 80));
+          console.log("[CCFHelper:upload] CDN URL:", cdnUrl);
         }
         uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
       }
