@@ -845,6 +845,30 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+// ── 핀업 (새 창으로 고정) ──────────────────────────────────────────────
+(function initPinBtn() {
+  const pinBtn = document.getElementById("pinBtn");
+  if (!pinBtn) return;
+  const isPinned = new URLSearchParams(window.location.search).has("pinned");
+  if (isPinned) {
+    pinBtn.classList.add("pinned");
+    pinBtn.title = "이미 고정된 창입니다";
+  } else {
+    pinBtn.addEventListener("click", () => {
+      const activeTab = document.querySelector(".tab.active")?.dataset?.tab ?? "";
+      const url = chrome.runtime.getURL("popup.html") + `?pinned=1${activeTab ? "&tab=" + activeTab : ""}`;
+      chrome.windows.create({ url, type: "popup", width: 340, height: 600, focused: true });
+      window.close();
+    });
+  }
+  // 핀된 창에서 초기 탭 복원
+  const initialTab = new URLSearchParams(window.location.search).get("tab");
+  if (initialTab) {
+    const tabEl = document.querySelector(`[data-tab="${initialTab}"]`);
+    if (tabEl && !tabEl.classList.contains("disabled")) tabEl.click();
+  }
+})();
+
 renderFavTree();
 
 // =============================================
@@ -993,6 +1017,10 @@ async function renderStandingPacks() {
   const listEl = document.getElementById("stdPackList");
   if (!listEl) return;
 
+  // 재렌더 전 현재 열린/닫힌 상태 저장
+  const existingPackIds = new Set([...listEl.querySelectorAll(".std-pack")].map(el => el.dataset.id));
+  const openPackIds = new Set([...listEl.querySelectorAll(".std-pack.open")].map(el => el.dataset.id));
+
   if (!packs.length) {
     listEl.innerHTML = `<div class="std-lib-empty">저장된 팩이 없습니다.<br>팩 만들기 또는 현재 스탠딩 저장으로 추가하세요.</div>`;
     return;
@@ -1001,7 +1029,9 @@ async function renderStandingPacks() {
   listEl.innerHTML = "";
   packs.forEach((pack) => {
     const packEl = document.createElement("div");
-    packEl.className = "std-pack open";
+    // 처음 렌더링이거나 새로 만든 팩이면 열린 상태, 기존 팩은 이전 상태 복원
+    const shouldOpen = !existingPackIds.has(pack.id) || openPackIds.has(pack.id);
+    packEl.className = `std-pack${shouldOpen ? " open" : ""}`;
     packEl.dataset.id = pack.id;
 
     const disabledAttr = _stdCharId ? "" : "disabled";

@@ -512,10 +512,7 @@
         const primaryDialogForCheck = targets[0] ?? null;
         const nameHint = _dialogNameHint(primaryDialogForCheck);
         // nameHint가 없거나 캐시 이름과 일치하면 캐시 사용
-        const cacheValid = !nameHint ||
-          _lastEditedChar.name === nameHint ||
-          _lastEditedChar.name.includes(nameHint) ||
-          nameHint.includes(_lastEditedChar.name);
+        const cacheValid = !nameHint || _lastEditedChar.name === nameHint;
         if (cacheValid) {
           charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
           console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
@@ -994,7 +991,7 @@
           const f = v.mapValue?.fields ?? {};
           return {
             name: f.name?.stringValue ?? f.label?.stringValue ?? "",
-            imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+            imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
           };
         });
       }

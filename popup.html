@@ -766,6 +766,15 @@
   .std-save-pack-btn:hover:not(:disabled) { background: rgba(128,203,196,0.2); }
   .std-save-pack-btn:disabled { color: #444; border-color: #333; cursor: default; }
 
+  /* ── 핀업 버튼 ── */
+  .pin-btn {
+    background: none; border: none; color: #444; font-size: 13px;
+    cursor: pointer; padding: 0 2px; line-height: 1;
+    transition: color 0.15s; flex-shrink: 0;
+  }
+  .pin-btn:hover { color: #80cbc4; }
+  .pin-btn.pinned { color: #80cbc4; cursor: default; }
+
 </style>
 </head>
 <body>
@@ -774,6 +783,7 @@
   <div class="header-icon">C</div>
   <span class="header-title">Ccfolia Helper</span>
   <span class="header-sub">v1.7.0</span>
+  <button id="pinBtn" class="pin-btn" title="새 창으로 고정 (팝업 유지)">📌</button>
 </div>
 
 <div class="tabs">
