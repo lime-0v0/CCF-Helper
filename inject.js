@@ -545,8 +545,8 @@
       if (_lastEditedChar?.id) {
         const primaryDialogForCheck = targets[0] ?? null;
         const nameHint = _dialogNameHint(primaryDialogForCheck);
-        // nameHint가 없거나 캐시 이름과 일치하면 캐시 사용
-        const cacheValid = !!_lastEditedChar.name && (!nameHint || _lastEditedChar.name === nameHint);
+        // nameHint가 없거나, "@"로 시작하는 표정 이름이거나, 캐시 이름과 일치하면 캐시 사용
+        const cacheValid = !!_lastEditedChar.name && (!nameHint || nameHint.startsWith("@") || _lastEditedChar.name === nameHint);
         if (cacheValid) {
           charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
           console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
@@ -597,7 +597,8 @@
       if (!charData) {
         const nameHint = _dialogNameHint(primaryDialog);
         const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
-        if (nameHint && roomId && authToken) {
+        // "@"로 시작하는 힌트는 표정 이름이므로 Firestore 검색에 사용하지 않음
+        if (nameHint && !nameHint.startsWith("@") && roomId && authToken) {
           try {
             const listUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters?pageSize=300`;
             const resp = await _fetch(listUrl, { headers: { Authorization: `Bearer ${authToken}` } });
@@ -798,15 +799,24 @@
   }
 
   // dialog 내 첫 번째 텍스트 input 값 추출 (캐릭터 이름 힌트)
-  // hidden / number / checkbox / radio / range 타입 및 순수 숫자 값은 건너뜀
+  // hidden / number / checkbox / radio / range 타입 및 "@"로 시작하는 표정 이름은 건너뜀
+  // 1차: 비숫자 값 우선 (예: "123(1)"), 2차: 숫자만으로 된 이름 허용 (예: "1234")
   function _dialogNameHint(dialogEl) {
     if (!dialogEl) return "";
     const inputs = dialogEl.querySelectorAll(
       'input:not([type="hidden"]):not([type="number"]):not([type="checkbox"]):not([type="radio"]):not([type="range"])'
     );
+    // 1차: 비숫자이고 "@"로 시작하지 않는 값
     for (const inp of inputs) {
       const v = inp.value?.trim() ?? "";
-      if (v && !/^-?\d+(\.\d+)?$/.test(v)) return v;
+      if (!v || v.startsWith("@") || /^-?\d+(\.\d+)?$/.test(v)) continue;
+      return v;
+    }
+    // 2차: 숫자만으로 된 캐릭터 이름 허용 (단, "@" 표정 이름은 여전히 제외)
+    for (const inp of inputs) {
+      const v = inp.value?.trim() ?? "";
+      if (!v || v.startsWith("@")) continue;
+      return v;
     }
     return "";
   }
