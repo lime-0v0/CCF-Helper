@@ -1059,6 +1059,7 @@ async function renderStandingPacks() {
         <span class="std-pack-arrow">▶</span>
         <span class="std-pack-name">${escapeHtml(pack.name)}</span>
         <div class="std-pack-actions">
+          <button class="std-pack-rename-btn" title="이름 변경">✎</button>
           <button class="std-pack-apply-btn" title="전체 캐릭터에 적용" ${disabledAttr}>▶</button>
           <button class="std-pack-del-btn" title="팩 삭제">✕</button>
         </div>
@@ -1120,6 +1121,19 @@ async function renderStandingPacks() {
         else showPopupToast(`실패: ${res?.error ?? "오류"}`);
       } catch (err) { showPopupToast("오류: " + err.message); }
       applyAllBtn.textContent = orig; applyAllBtn.disabled = !_stdCharId;
+    });
+
+    // 팩 이름 변경
+    packEl.querySelector(".std-pack-rename-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const newName = prompt("팩 이름 변경:", pack.name);
+      if (!newName?.trim() || newName.trim() === pack.name) return;
+      const ps = await getStandingPacks();
+      const p = ps.find(p => p.id === pack.id);
+      if (!p) return;
+      p.name = newName.trim();
+      await saveStandingPacks(ps);
+      renderStandingPacks();
     });
 
     // 팩 삭제
