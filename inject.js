@@ -141,6 +141,8 @@
               console.log("[CCFHelper:xhr] Listen target for char:", charId);
               if (_lastEditedChar?.id !== charId) {
                 _lastEditedChar = { id: charId, name: "", faces: [] };
+                // 즉시 알림 (이름은 아직 없음)
+                window.postMessage({ __ccfoliaHelper: true, action: "CHAR_DETECTED", charId, charName: "" }, "*");
                 const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
                 if (roomId && authToken) {
                   const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
@@ -160,6 +162,8 @@
                           }),
                         };
                         console.log("[CCFHelper:xhr] Listen char data ready:", charId, _lastEditedChar.name);
+                        // 이름 확보 후 재알림
+                        window.postMessage({ __ccfoliaHelper: true, action: "CHAR_DETECTED", charId, charName: _lastEditedChar.name }, "*");
                       }
                     })
                     .catch(() => {});

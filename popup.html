@@ -707,15 +707,17 @@
     text-overflow: ellipsis; white-space: nowrap;
   }
   .std-lib-actions { display: flex; gap: 4px; flex-shrink: 0; }
-  .std-apply-btn, .std-del-btn {
-    background: none; border: 1px solid #444; border-radius: 4px;
-    font-size: 10px; padding: 2px 6px; cursor: pointer; font-family: inherit;
+  .std-lib-actions button {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 13px; padding: 0 2px; line-height: 1;
+    transition: color 0.15s; flex-shrink: 0;
   }
-  .std-apply-btn { color: #80cbc4; border-color: #80cbc4; }
-  .std-apply-btn:hover:not(:disabled) { background: rgba(128,203,196,0.15); }
-  .std-apply-btn:disabled { color: #444; border-color: #333; cursor: default; }
-  .std-del-btn { color: #666; }
-  .std-del-btn:hover { color: #ef5350; border-color: #ef5350; }
+  .std-lib-actions button:disabled { color: #333; cursor: default; }
+  .std-item-rename-btn:hover { color: #ffa726; }
+  .std-apply-btn { color: #80cbc4; }
+  .std-apply-btn:hover:not(:disabled) { color: #b2dfdb; }
+  .std-apply-btn:disabled { color: #333; cursor: default; }
+  .std-del-btn:hover { color: #ef5350; }
   .std-lib-empty { font-size: 11px; color: #555; text-align: center; padding: 12px 0; }
 
   /* ── 스탠딩 팩 ── */
@@ -797,6 +799,15 @@
   .std-lib-item.dragging { opacity: 0.4; }
   .std-lib-item.drag-over { border-top: 2px solid #80cbc4; }
   .std-lib-item.drag-over-bottom { border-bottom: 2px solid #80cbc4; }
+
+  /* ── 스탠딩 팩 순서 드래그 ── */
+  .std-pack[draggable="true"] { cursor: grab; }
+  .std-pack.pack-dragging { opacity: 0.4; }
+  .std-pack.pack-drag-over-top { border-top: 2px solid #80cbc4; }
+  .std-pack.pack-drag-over-bottom { border-bottom: 2px solid #80cbc4; }
+
+  /* 업로드 버튼 힌트 텍스트 */
+  .std-upload-hint { font-size: 9px; opacity: 0.6; }
 
   /* ── 이미지 호버 미리보기 ── */
   #imgPreview {
@@ -1208,7 +1219,7 @@
 
   <!-- 파일 업로드 (항상 표시, 캐릭터 미감지 시 비활성화) -->
   <div class="std-section" id="stdUploadSection">
-    <button class="std-upload-btn" id="stdUploadBtn" disabled>📁 파일에서 추가</button>
+    <button class="std-upload-btn" id="stdUploadBtn" disabled>📁 파일에서 추가<span class="std-upload-hint"> · 드래그 앤 드롭 가능</span></button>
     <input type="file" id="stdFileInput" accept="image/*" multiple style="display:none">
   </div>
 

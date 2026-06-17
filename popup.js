@@ -976,6 +976,26 @@ document.addEventListener("visibilitychange", () => {
 
 renderFavTree();
 
+// ── 캐릭터 감지 자동 알림 (inject → content → popup) ──────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type !== "CHAR_DETECTED" || !msg.charId) return;
+  _stdCharId = msg.charId;
+  _stdCharName = msg.charName || msg.charId;
+  const nameEl = document.getElementById("stdCharName");
+  if (nameEl) {
+    nameEl.textContent = `캐릭터: ${_stdCharName}`;
+    nameEl.className = "std-char-name detected";
+  }
+  const uploadBtn = document.getElementById("stdUploadBtn");
+  if (uploadBtn) {
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = "📁 파일에서 추가<span class='std-upload-hint'> · 드래그 앤 드롭 가능</span>";
+  }
+  const savePackBtn = document.getElementById("stdSavePackBtn");
+  if (savePackBtn) savePackBtn.disabled = false;
+  if (document.querySelector(".tab[data-tab='standing'].active")) renderStandingPacks();
+});
+
 // =============================================
 // 내보내기 / 불러오기
 // =============================================
@@ -1106,12 +1126,12 @@ async function initStandingTab() {
     _stdCharName = charData.name || "(이름 없음)";
     nameEl.textContent = `캐릭터: ${_stdCharName}`;
     nameEl.className = "std-char-name detected";
-    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.textContent = "📁 파일에서 추가"; }
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.innerHTML = "📁 파일에서 추가<span class='std-upload-hint'> · 드래그 앤 드롭 가능</span>"; }
     if (savePackBtn) savePackBtn.disabled = false;
   } else {
     _stdCharId = null; _stdCharName = null;
     nameEl.textContent = tab ? "캐릭터 편집 화면을 열어 주세요" : "ccfolia 방 탭이 없습니다";
-    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = "📁 파일에서 추가"; }
+    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.innerHTML = "📁 파일에서 추가<span class='std-upload-hint'> · 드래그 앤 드롭 가능</span>"; }
     if (savePackBtn) savePackBtn.disabled = true;
   }
   await renderStandingPacks();
@@ -1139,6 +1159,7 @@ async function renderStandingPacks() {
     const shouldOpen = !isFirstRender && (!existingPackIds.has(pack.id) || openPackIds.has(pack.id));
     packEl.className = `std-pack${shouldOpen ? " open" : ""}`;
     packEl.dataset.id = pack.id;
+    packEl.draggable = true;
 
     const disabledAttr = _stdCharId ? "" : "disabled";
 
@@ -1202,7 +1223,7 @@ async function renderStandingPacks() {
       applyAllBtn.textContent = "⏳"; applyAllBtn.disabled = true;
       try {
         const files = pack.items.map(item => ({
-          faceName: "@" + item.name.replace(/^@+/, ""),
+          faceName: item.name,
           directUrl: item.imageUrl,
         }));
         const res = await chrome.tabs.sendMessage(tab.id, {
@@ -1258,7 +1279,7 @@ async function renderStandingPacks() {
         if (!item) return;
         const tab = await getCcfoliaTab();
         if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
-        const faceName = "@" + item.name.replace(/^@+/, "");
+        const faceName = item.name;
         try {
           const res = await chrome.tabs.sendMessage(tab.id, {
             type: "ADD_STANDING_URL_FROM_POPUP", charId: _stdCharId, faceName, imageUrl: item.imageUrl,
@@ -1402,6 +1423,48 @@ async function renderStandingPacks() {
       e.stopPropagation();
       _pendingFilePackId = pack.id;
       document.getElementById("stdPackFileInput").click();
+    });
+
+    // ── 팩 순서 드래그 ──
+    packEl.addEventListener("dragstart", (e) => {
+      if (e.target.closest(".std-lib-item")) return; // 아이템 드래그와 구분
+      e.stopPropagation();
+      e.dataTransfer.setData("packId", pack.id);
+      e.dataTransfer.effectAllowed = "move";
+      setTimeout(() => packEl.classList.add("pack-dragging"), 0);
+    });
+    packEl.addEventListener("dragend", () => {
+      packEl.classList.remove("pack-dragging");
+      listEl.querySelectorAll(".std-pack").forEach(el => el.classList.remove("pack-drag-over-top", "pack-drag-over-bottom"));
+    });
+    packEl.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes("packid")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      listEl.querySelectorAll(".std-pack").forEach(el => el.classList.remove("pack-drag-over-top", "pack-drag-over-bottom"));
+      const rect = packEl.getBoundingClientRect();
+      packEl.classList.add(e.clientY < rect.top + rect.height / 2 ? "pack-drag-over-top" : "pack-drag-over-bottom");
+    });
+    packEl.addEventListener("dragleave", (e) => {
+      if (!packEl.contains(e.relatedTarget)) packEl.classList.remove("pack-drag-over-top", "pack-drag-over-bottom");
+    });
+    packEl.addEventListener("drop", async (e) => {
+      if (!e.dataTransfer.types.includes("packid")) return;
+      e.preventDefault(); e.stopPropagation();
+      packEl.classList.remove("pack-drag-over-top", "pack-drag-over-bottom");
+      const fromId = e.dataTransfer.getData("packId");
+      if (!fromId || fromId === pack.id) return;
+      const rect = packEl.getBoundingClientRect();
+      const insertBefore = e.clientY < rect.top + rect.height / 2;
+      const ps = await getStandingPacks();
+      const fromIdx = ps.findIndex(p => p.id === fromId);
+      const toIdx = ps.findIndex(p => p.id === pack.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = ps.splice(fromIdx, 1);
+      const newToIdx = ps.findIndex(p => p.id === pack.id);
+      ps.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
+      await saveStandingPacks(ps);
+      await renderStandingPacks();
     });
 
     listEl.appendChild(packEl);

@@ -287,6 +287,14 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   }
 });
 
+// ── inject.js → popup으로 캐릭터 감지 알림 중계 ──────────────────────
+window.addEventListener("message", (e) => {
+  if (!e.data?.__ccfoliaHelper) return;
+  if (e.data.action === "CHAR_DETECTED") {
+    chrome.runtime.sendMessage({ type: "CHAR_DETECTED", charId: e.data.charId, charName: e.data.charName }).catch(() => {});
+  }
+});
+
 // ── 우클릭 메뉴 → 즐겨찾기 추가 기능 ─────────────────────────────────
 
 function genId() {
