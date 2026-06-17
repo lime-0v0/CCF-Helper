@@ -541,19 +541,44 @@
         return;
       }
 
-      // ── XHR 캐시 확인: 현재 열린 다이얼로그 이름과 대조해 유효하면 즉시 반환 ──
+      // ── addTarget 인터셉터 캐시: nameHint 검증 없이 신뢰 ──
+      // addTarget → Firestore REST로 직접 취득한 id+name이므로 nameHint보다 정확
       if (_lastEditedChar?.id) {
-        const primaryDialogForCheck = targets[0] ?? null;
-        const nameHint = _dialogNameHint(primaryDialogForCheck);
-        // nameHint가 없거나, "@"로 시작하는 표정 이름이거나, 캐시 이름과 일치하면 캐시 사용
-        const cacheValid = !!_lastEditedChar.name && (!nameHint || nameHint.startsWith("@") || _lastEditedChar.name === nameHint);
-        if (cacheValid) {
+        if (_lastEditedChar.name) {
+          // id + name 모두 있으면 즉시 반환
           charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
-          console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
+          console.log("[CCFHelper:dialog-scan] cache hit:", charData);
           window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
           return;
         }
-        console.log("[CCFHelper:dialog-scan] XHR cache 무효 — cache:", _lastEditedChar.name, "hint:", nameHint);
+        // id는 있지만 async fetch가 아직 완료되지 않음 → 직접 동기 fetch
+        {
+          const charId = _lastEditedChar.id;
+          const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+          if (roomId && authToken) {
+            try {
+              const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+              const doc = await _fetch(charUrl, { headers: { Authorization: `Bearer ${authToken}` } }).then(r => r.ok ? r.json() : null);
+              if (doc?.fields) {
+                const name = doc.fields.name?.stringValue ?? "";
+                const faces = (doc.fields.faces?.arrayValue?.values ?? []).map(v => {
+                  const f = v.mapValue?.fields ?? {};
+                  return {
+                    name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                    imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+                  };
+                });
+                _lastEditedChar = { id: charId, name, faces };
+                if (name) {
+                  charData = { id: charId, name };
+                  console.log("[CCFHelper:dialog-scan] cache id-fetch:", charData);
+                  window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+                  return;
+                }
+              }
+            } catch (_) {}
+          }
+        }
       }
 
       // Redux store 미캐시 상태라면 document.body fiber에서도 탐색
@@ -574,10 +599,16 @@
       }
       const primaryDialog = targets[0] ?? null;
       const nameHintFallback = _dialogNameHint(primaryDialog);
-      // 다이얼로그 이름 힌트와 불일치하면 폐기 (Redux 데이터에서 다른 캐릭터를 읽은 경우)
+      // nameHint는 신뢰도가 낮음(DOM 순서 의존) → 불일치여도 바로 버리지 않고 Redux로 재확인
       if (charData && nameHintFallback && charData.name !== nameHintFallback) {
-        console.log("[CCFHelper:dialog-scan] fiber mismatch:", charData.name, "≠", nameHintFallback, "— discarding");
-        charData = null;
+        console.log("[CCFHelper:dialog-scan] fiber hint mismatch:", charData.name, "≠", nameHintFallback, "— trying Redux");
+        // Redux에서 해당 id 캐릭터가 실제로 존재하는지 확인
+        const reduxResult = _findCharInRedux(primaryDialog);
+        if (reduxResult && reduxResult.id !== charData.id) {
+          console.log("[CCFHelper:dialog-scan] discarding fiber result, using Redux:", reduxResult);
+          charData = reduxResult;
+        }
+        // Redux 결과도 없으면 fiber 결과 유지 (nameHint가 틀렸을 가능성이 더 높음)
       }
       // fallback 1: Redux store 직접 탐색 (패턴 A+B)
       if (!charData) charData = _findCharInRedux(primaryDialog);
@@ -586,11 +617,8 @@
         const fkey2 = Object.keys(primaryDialog).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
         if (fkey2) {
           const fkResult = _findCharByFiberKey(primaryDialog[fkey2]);
-          if (fkResult && (!nameHintFallback || fkResult.name === nameHintFallback)) {
-            charData = fkResult;
-          } else if (fkResult) {
-            console.log("[CCFHelper:dialog-scan] fiberKey mismatch:", fkResult.name, "≠", nameHintFallback);
-          }
+          // nameHint 불일치여도 단독 결과면 신뢰 (nameHint가 엉뚱한 값일 수 있음)
+          if (fkResult) charData = fkResult;
         }
       }
       // fallback 3: Firestore REST API — 캐릭터 목록 조회 후 이름 매칭
