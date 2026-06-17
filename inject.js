@@ -799,20 +799,14 @@
   }
 
   // dialog 내 첫 번째 텍스트 input 값 추출 (캐릭터 이름 힌트)
-  // hidden / number / checkbox / radio / range 타입 및 "@"로 시작하는 표정 이름은 건너뜀
-  // 1차: 비숫자 값 우선 (예: "123(1)"), 2차: 숫자만으로 된 이름 허용 (예: "1234")
+  // hidden / number / checkbox / radio / range 타입은 셀렉터에서 제외되므로
+  // HP·MP 같은 숫자 입력은 걸리지 않음. "@"로 시작하는 표정 이름만 제외.
+  // 캐릭터 이름 input은 다이얼로그 DOM에서 항상 첫 번째로 나타남.
   function _dialogNameHint(dialogEl) {
     if (!dialogEl) return "";
     const inputs = dialogEl.querySelectorAll(
       'input:not([type="hidden"]):not([type="number"]):not([type="checkbox"]):not([type="radio"]):not([type="range"])'
     );
-    // 1차: 비숫자이고 "@"로 시작하지 않는 값
-    for (const inp of inputs) {
-      const v = inp.value?.trim() ?? "";
-      if (!v || v.startsWith("@") || /^-?\d+(\.\d+)?$/.test(v)) continue;
-      return v;
-    }
-    // 2차: 숫자만으로 된 캐릭터 이름 허용 (단, "@" 표정 이름은 여전히 제외)
     for (const inp of inputs) {
       const v = inp.value?.trim() ?? "";
       if (!v || v.startsWith("@")) continue;
