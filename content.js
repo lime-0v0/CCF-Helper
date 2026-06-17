@@ -279,6 +279,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+  if (msg.type === "UPLOAD_FILES_TO_CDN_FROM_POPUP") {
+    uploadFilesToCdnViaInject(msg.files)
+      .then(items => sendResponse({ ok: true, items }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 });
 
 // ── 우클릭 메뉴 → 즐겨찾기 추가 기능 ─────────────────────────────────
@@ -378,6 +384,23 @@ function addStandingUrlViaInject(roomId, charId, faceName, imageUrl) {
     }
     window.addEventListener("message", onMsg);
     window.postMessage({ __ccfoliaHelper: true, action: "ADD_STANDING_URL", requestId, roomId, charId, faceName, imageUrl }, "*");
+  });
+}
+
+function uploadFilesToCdnViaInject(files) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_cdn_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 120000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "UPLOAD_FILES_TO_CDN_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve(event.data.items);
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN", requestId, files }, "*");
   });
 }
 

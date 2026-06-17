@@ -918,7 +918,7 @@ document.getElementById("importAllInput")?.addEventListener("change", async (e) 
 
 let _stdCharId = null;
 let _stdCharName = null;
-let _pendingUrlPackId = null;
+let _pendingFilePackId = null;
 
 async function getStandingPacks() {
   return new Promise(r => chrome.storage.local.get({ standingPacks: null, standingLib: [] }, d => {
@@ -1030,8 +1030,17 @@ async function renderStandingPacks() {
               </div>
             </div>
           `).join("")}
-        <div style="padding:4px 8px">
+        <div class="std-pack-url-form std-url-form" style="display:none;margin:4px 8px 0;border-radius:4px;">
+          <input type="text" class="pack-url-name-input" placeholder="이름 (예: 미소)">
+          <input type="text" class="pack-url-image-input" placeholder="이미지 URL">
+          <div class="std-url-form-btns">
+            <button class="pack-url-cancel-btn">취소</button>
+            <button class="primary pack-url-save-btn">저장</button>
+          </div>
+        </div>
+        <div style="padding:4px 8px;display:flex;gap:4px;">
           <button class="std-pack-add-url-btn" data-pack-id="${escapeHtml(pack.id)}">+ URL 추가</button>
+          <button class="std-pack-add-url-btn std-pack-upload-file-btn" data-pack-id="${escapeHtml(pack.id)}">+ 파일 추가</button>
         </div>
       </div>
     `;
@@ -1109,20 +1118,49 @@ async function renderStandingPacks() {
       });
     });
 
-    // URL 추가 버튼 (팩 내)
+    // URL 추가 버튼 → 인라인 폼 토글
     packEl.querySelector(".std-pack-add-url-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      _pendingUrlPackId = pack.id;
-      const form = document.getElementById("stdUrlForm");
-      const isOpen = form.style.display !== "none";
-      if (isOpen && _pendingUrlPackId === pack.id) {
-        form.style.display = "none";
-        _pendingUrlPackId = null;
-      } else {
-        document.getElementById("stdUrlNameInput").value = "";
-        document.getElementById("stdUrlImageInput").value = "";
-        form.style.display = "block";
+      const urlForm = packEl.querySelector(".std-pack-url-form");
+      const isOpen = urlForm.style.display !== "none";
+      document.querySelectorAll(".std-pack-url-form").forEach(f => { f.style.display = "none"; });
+      if (!isOpen) {
+        urlForm.querySelector(".pack-url-name-input").value = "";
+        urlForm.querySelector(".pack-url-image-input").value = "";
+        urlForm.style.display = "block";
+        urlForm.querySelector(".pack-url-name-input").focus();
       }
+    });
+
+    // 인라인 URL 폼 취소
+    packEl.querySelector(".pack-url-cancel-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      packEl.querySelector(".std-pack-url-form").style.display = "none";
+    });
+
+    // 인라인 URL 폼 저장
+    packEl.querySelector(".pack-url-save-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const urlForm = packEl.querySelector(".std-pack-url-form");
+      const name = urlForm.querySelector(".pack-url-name-input").value.trim();
+      const imageUrl = urlForm.querySelector(".pack-url-image-input").value.trim();
+      if (!name) { alert("이름을 입력해주세요."); return; }
+      if (!imageUrl) { alert("이미지 URL을 입력해주세요."); return; }
+      const packs = await getStandingPacks();
+      const p = packs.find(p => p.id === pack.id);
+      if (!p) return;
+      p.items.push({ name, imageUrl });
+      await saveStandingPacks(packs);
+      urlForm.style.display = "none";
+      await renderStandingPacks();
+      showPopupToast(`"${name}" 저장됨!`);
+    });
+
+    // 파일 추가 버튼
+    packEl.querySelector(".std-pack-upload-file-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _pendingFilePackId = pack.id;
+      document.getElementById("stdPackFileInput").click();
     });
 
     listEl.appendChild(packEl);
@@ -1195,36 +1233,36 @@ document.getElementById("stdNewPackBtn")?.addEventListener("click", async () => 
   showPopupToast(`"${name.trim()}" 팩 만들기 완료!`);
 });
 
-// URL 추가 폼 취소
-document.getElementById("stdUrlCancelBtn")?.addEventListener("click", () => {
-  document.getElementById("stdUrlForm").style.display = "none";
-  document.getElementById("stdUrlNameInput").value = "";
-  document.getElementById("stdUrlImageInput").value = "";
-  _pendingUrlPackId = null;
-});
-
-// URL 추가 저장
-document.getElementById("stdUrlSaveBtn")?.addEventListener("click", async () => {
-  const name = document.getElementById("stdUrlNameInput").value.trim();
-  const imageUrl = document.getElementById("stdUrlImageInput").value.trim();
-  if (!name) { alert("이름을 입력해주세요."); return; }
-  if (!imageUrl) { alert("이미지 URL을 입력해주세요."); return; }
-  const packs = await getStandingPacks();
-  let targetPack = packs.find(p => p.id === _pendingUrlPackId);
-  if (!targetPack) {
-    if (packs.length === 0) {
-      targetPack = { id: genStdPackId(), name: "기본 팩", items: [] };
-      packs.push(targetPack);
-    } else {
-      targetPack = packs[0];
+// 팩 파일 추가 (CDN 전용, 캐릭터 불필요)
+document.getElementById("stdPackFileInput")?.addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (!files.length || !_pendingFilePackId) return;
+  const packId = _pendingFilePackId;
+  _pendingFilePackId = null;
+  const tab = await getCcfoliaTab();
+  if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+  showPopupToast(`${files.length}개 업로드 중...`);
+  try {
+    const fileData = await Promise.all(files.map(async f => {
+      const buffer = await f.arrayBuffer();
+      return { name: f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: Array.from(new Uint8Array(buffer)) };
+    }));
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: "UPLOAD_FILES_TO_CDN_FROM_POPUP", files: fileData,
+    });
+    if (!res?.ok) throw new Error(res?.error ?? "오류");
+    const packs = await getStandingPacks();
+    const p = packs.find(p => p.id === packId);
+    if (!p) { showPopupToast("팩을 찾을 수 없음"); return; }
+    for (const item of res.items) {
+      let itemName = "@" + item.name;
+      let ctr = 1;
+      while (p.items.some(ex => ex.name === itemName)) itemName = `@${item.name} (${ctr++})`;
+      p.items.push({ name: itemName, imageUrl: item.url });
     }
-  }
-  targetPack.items.push({ name, imageUrl });
-  await saveStandingPacks(packs);
-  document.getElementById("stdUrlForm").style.display = "none";
-  document.getElementById("stdUrlNameInput").value = "";
-  document.getElementById("stdUrlImageInput").value = "";
-  _pendingUrlPackId = null;
-  await renderStandingPacks();
-  showPopupToast(`"${name}" 저장됨!`);
+    await saveStandingPacks(packs);
+    await renderStandingPacks();
+    showPopupToast(`${res.items.length}개 추가됨!`);
+  } catch (err) { showPopupToast("오류: " + err.message); }
 });

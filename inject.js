@@ -501,6 +501,12 @@
         ...dialogs.filter(d => !charDialogs.includes(d)),
       ];
 
+      // 다이얼로그가 없으면 편집창이 닫혀 있으므로 캐릭터 없음 반환
+      if (targets.length === 0) {
+        window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData: null }, "*");
+        return;
+      }
+
       // ── XHR 캐시 확인: 현재 열린 다이얼로그 이름과 대조해 유효하면 즉시 반환 ──
       if (_lastEditedChar?.id) {
         const primaryDialogForCheck = targets[0] ?? null;
@@ -632,6 +638,13 @@
           window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: false, error: err.message }, "*");
         }
       })();
+      return;
+    }
+
+    // ── UPLOAD_FILES_TO_CDN: CDN 업로드만 (Firestore 패치 없음) ──
+    if (event.data.action === "UPLOAD_FILES_TO_CDN") {
+      const { requestId, files } = event.data;
+      uploadFilesToCdn(requestId, files);
       return;
     }
 
@@ -917,6 +930,29 @@
     // CDN이 url 필드를 직접 반환하는 경우
     if (typeof data.url === "string") return data.url;
     return `https://storage.ccfolia-cdn.net/${data.name}?t=${Math.floor(Number(data.generation) / 1000)}`;
+  }
+
+  // ── CDN 전용 업로드 (Firestore 패치 없음) ────────────────────────────
+  async function uploadFilesToCdn(requestId, files) {
+    try {
+      await new Promise((resolve) => {
+        try {
+          const user = window.firebase?.auth?.()?.currentUser;
+          if (user?.getIdToken) user.getIdToken().then((t) => { authToken = t; resolve(); }).catch(resolve);
+          else resolve();
+        } catch (_) { resolve(); }
+      });
+      if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
+      const items = [];
+      for (const f of files) {
+        const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
+        const url = await uploadFileToStorage(rawBuffer, f.type);
+        items.push({ name: f.name, url });
+      }
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN_RESULT", requestId, success: true, items }, "*");
+    } catch (err) {
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN_RESULT", requestId, success: false, error: err.message }, "*");
+    }
   }
 
   // ── UPLOAD_STANDING: 파일 업로드 → Firestore faces PATCH ─────────────
