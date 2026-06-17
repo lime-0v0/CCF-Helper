@@ -922,10 +922,13 @@
         let cdnUrl;
         if (f.directUrl) {
           cdnUrl = f.directUrl;
+          console.log("[CCFHelper:upload] directUrl:", f.faceName, cdnUrl.slice(0, 60));
         } else {
           // chrome.tabs.sendMessage은 ArrayBuffer를 {}로 직렬화하므로 Array로 복원
           const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
+          console.log("[CCFHelper:upload] uploading:", f.faceName, f.type, "bufferLen:", rawBuffer.byteLength);
           cdnUrl = await uploadFileToStorage(rawBuffer, f.type);
+          console.log("[CCFHelper:upload] CDN URL:", cdnUrl.slice(0, 80));
         }
         uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
       }
@@ -962,7 +965,9 @@
               values: combined.map(f => ({
                 mapValue: { fields: {
                   name:     { stringValue: f.name },
+                  label:    { stringValue: f.name },     // ccfolia UI는 label 필드를 읽음
                   imageUrl: { stringValue: f.imageUrl },
+                  url:      { stringValue: f.imageUrl }, // ccfolia UI는 url 필드를 읽음
                 }},
               })),
             },
