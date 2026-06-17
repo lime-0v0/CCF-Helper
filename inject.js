@@ -663,7 +663,32 @@
         }
       }
       // 탐색 결과로 캐시 갱신 (다음 요청에서 빠르게 반환)
-      if (charData?.id) _lastEditedChar = { id: charData.id, name: charData.name, faces: _lastEditedChar?.faces ?? [] };
+      if (charData?.id) {
+        const prevFaces = (_lastEditedChar?.id === charData.id) ? (_lastEditedChar.faces ?? []) : [];
+        _lastEditedChar = { id: charData.id, name: charData.name, faces: prevFaces };
+        // faces가 없으면 (addTarget async fetch가 authToken 없어서 스킵됐을 때) 백그라운드 fetch
+        if (!prevFaces.length) {
+          const _roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+          const _charId = charData.id;
+          if (_roomId && authToken) {
+            const _charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(_roomId)}/characters/${encodeURIComponent(_charId)}`;
+            _fetch(_charUrl, { headers: { Authorization: `Bearer ${authToken}` } })
+              .then(r => r.ok ? r.json() : null)
+              .then(doc => {
+                if (doc?.fields && _lastEditedChar?.id === _charId) {
+                  _lastEditedChar.faces = (doc.fields.faces?.arrayValue?.values ?? []).map(v => {
+                    const f = v.mapValue?.fields ?? {};
+                    return {
+                      name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                      imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+                    };
+                  });
+                  console.log("[CCFHelper:dialog-scan] faces bg-fetch:", _charId, _lastEditedChar.faces.length);
+                }
+              }).catch(() => {});
+          }
+        }
+      }
       console.log("[CCFHelper:dialog-scan] result:", charData);
       window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
       return;
@@ -688,8 +713,9 @@
       const { requestId, roomId, charId } = event.data;
       (async () => {
         try {
-          // 캐시된 데이터가 같은 캐릭터면 REST 호출 없이 바로 반환
-          if (_lastEditedChar?.id === charId && Array.isArray(_lastEditedChar.faces)) {
+          // 캐시에 faces가 실제로 있을 때만 신뢰
+          // faces=[]는 Firestore에서 읽지 않고 초기화된 빈 배열일 수 있으므로 재확인
+          if (_lastEditedChar?.id === charId && _lastEditedChar.faces?.length > 0) {
             console.log("[CCFHelper:faces] cache hit:", charId, _lastEditedChar.faces.length, "faces");
             window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces: _lastEditedChar.faces }, "*");
             return;
