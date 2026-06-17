@@ -252,6 +252,47 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     createPanel(msg.data).then(() => sendResponse({ ok: true }));
     return true;
   }
+  if (msg.type === "GET_CHAR_FROM_DIALOG") {
+    scanDialogForChar()
+      .then(charData => sendResponse({ ok: true, charData }))
+      .catch(() => sendResponse({ ok: true, charData: null }));
+    return true;
+  }
+  if (msg.type === "UPLOAD_STANDINGS_FROM_POPUP") {
+    const roomId = getRoomId();
+    uploadStandingViaInject(roomId, msg.charId, msg.files)
+      .then(count => sendResponse({ ok: true, count }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+  if (msg.type === "ADD_STANDING_URL_FROM_POPUP") {
+    const roomId = getRoomId();
+    addStandingUrlViaInject(roomId, msg.charId, msg.faceName, msg.imageUrl)
+      .then(() => sendResponse({ ok: true }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+  if (msg.type === "GET_CHAR_FACES_FROM_POPUP") {
+    const roomId = getRoomId();
+    getCharFacesViaInject(roomId, msg.charId)
+      .then(faces => sendResponse({ ok: true, faces }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+  if (msg.type === "UPLOAD_FILES_TO_CDN_FROM_POPUP") {
+    uploadFilesToCdnViaInject(msg.files)
+      .then(items => sendResponse({ ok: true, items }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
+});
+
+// ── inject.js → popup으로 캐릭터 감지 알림 중계 ──────────────────────
+window.addEventListener("message", (e) => {
+  if (!e.data?.__ccfoliaHelper) return;
+  if (e.data.action === "CHAR_DETECTED") {
+    chrome.runtime.sendMessage({ type: "CHAR_DETECTED", charId: e.data.charId, charName: e.data.charName }).catch(() => {});
+  }
 });
 
 // ── 우클릭 메뉴 → 즐겨찾기 추가 기능 ─────────────────────────────────
@@ -295,6 +336,99 @@ function getPanelDataFromInject() {
   });
 }
 
+function readFileAsArrayBuffer(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload  = () => resolve(reader.result);
+    reader.onerror = reject;
+    reader.readAsArrayBuffer(file);
+  });
+}
+
+function uploadStandingViaInject(roomId, charId, files) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_standing_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 120000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "UPLOAD_STANDING_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve(event.data.count);
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING", requestId, roomId, charId, files }, "*");
+  });
+}
+
+function scanDialogForChar() {
+  return new Promise((resolve) => {
+    const requestId = `ccfh_dialog_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); resolve(null); }, 6000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "SCAN_DIALOG_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      resolve(event.data.charData ?? null);
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_FOR_CHAR", requestId }, "*");
+  });
+}
+
+function addStandingUrlViaInject(roomId, charId, faceName, imageUrl) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_addurl_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 15000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "UPLOAD_STANDING_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve();
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "ADD_STANDING_URL", requestId, roomId, charId, faceName, imageUrl }, "*");
+  });
+}
+
+function uploadFilesToCdnViaInject(files) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_cdn_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 120000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "UPLOAD_FILES_TO_CDN_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve(event.data.items);
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN", requestId, files }, "*");
+  });
+}
+
+function getCharFacesViaInject(roomId, charId) {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_faces_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 10000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "GET_CHAR_FACES_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.success) resolve(event.data.faces);
+      else reject(new Error(event.data.error ?? "UNKNOWN"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES", requestId, roomId, charId }, "*");
+  });
+}
+
 async function addPanelToFavorites(panelData) {
   const name = (panelData.memo || "").slice(0, 20) || "unnamed";
   const newBm = { id: genId(), folderId: "default", name, data: panelData };
@@ -310,8 +444,8 @@ async function addPanelToFavorites(panelData) {
 
 async function injectFavButton(menu) {
   if (menu.querySelector(".ccfh-ctx-btn")) return;
+  if (menu.textContent.includes("To own piece")) return;
 
-  // 캐릭터(피스)는 inject.js에서 null 반환 → 버튼 추가 안 함
   const panelData = await getPanelDataFromInject();
   if (!panelData) return;
 
@@ -368,16 +502,18 @@ function nudgeMenuUp(menu) {
 }
 
 // MutationObserver: ccfolia의 [role="menu"] 등장 감지
+// 우클릭(contextmenu)으로 열린 메뉴에만 버튼 주입 — 드롭다운 오염 방지
+let _contextMenuFired = false;
+document.addEventListener("contextmenu", () => { _contextMenuFired = true; }, true);
 const _ctxObserver = new MutationObserver((mutations) => {
   for (const mut of mutations) {
     for (const node of mut.addedNodes) {
       if (node.nodeType !== 1) continue;
       if (node.getAttribute?.("role") === "menu") {
-        injectFavButton(node);
-        nudgeMenuUp(node);
+        if (_contextMenuFired) { _contextMenuFired = false; injectFavButton(node); nudgeMenuUp(node); }
       } else {
         const menu = node.querySelector?.("[role='menu']");
-        if (menu) { injectFavButton(menu); nudgeMenuUp(menu); }
+        if (menu && _contextMenuFired) { _contextMenuFired = false; injectFavButton(menu); nudgeMenuUp(menu); }
       }
     }
   }

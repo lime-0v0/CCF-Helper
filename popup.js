@@ -1,3 +1,63 @@
+// ── 인라인 이름 수정 헬퍼 ─────────────────────────────────────────────
+function startInlineRename(nameEl, inputEl, onSave) {
+  nameEl.style.display = "none";
+  inputEl.style.display = "";
+  inputEl.focus();
+  inputEl.select();
+  let done = false;
+  function finish(save) {
+    if (done) return;
+    done = true;
+    inputEl.style.display = "none";
+    nameEl.style.display = "";
+    if (save) {
+      const v = inputEl.value.trim();
+      if (v) onSave(v);
+    }
+  }
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    if (e.key === "Escape") finish(false);
+  });
+  inputEl.addEventListener("blur", () => finish(true), { once: true });
+}
+
+// ── 팝업 토스트 ─────────────────────────────
+function showPopupToast(msg) {
+  const existing = document.getElementById("popup-toast");
+  if (existing) existing.remove();
+  const t = document.createElement("div");
+  t.id = "popup-toast";
+  t.textContent = msg;
+  t.style.cssText = [
+    "position:fixed", "bottom:10px", "left:50%", "transform:translateX(-50%)",
+    "background:#1b5e20", "color:#fff", "padding:7px 14px",
+    "border-radius:5px", "font-size:11px", "font-family:inherit",
+    "box-shadow:0 2px 8px rgba(0,0,0,.6)", "pointer-events:none",
+    "white-space:nowrap", "z-index:9999",
+    "animation:toast-in .15s ease",
+  ].join(";");
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 1800);
+}
+
+// ── 실행취소 토스트 ─────────────────────────────
+let _undoToastTimer = null;
+function showUndoToast(msg, onUndo) {
+  const existing = document.getElementById("undo-toast");
+  if (existing) { clearTimeout(_undoToastTimer); existing.remove(); }
+  const t = document.createElement("div");
+  t.id = "undo-toast";
+  t.innerHTML = `<span>${escapeHtml(msg)}</span><button>실행취소</button>`;
+  document.body.appendChild(t);
+  t.querySelector("button").addEventListener("click", () => {
+    clearTimeout(_undoToastTimer);
+    t.remove();
+    onUndo();
+  });
+  _undoToastTimer = setTimeout(() => t.remove(), 3000);
+}
+
 // Marker JSON 생성기
 const markerWidthEl = document.getElementById("markerWidth");
 const markerHeightEl = document.getElementById("markerHeight");
@@ -244,7 +304,17 @@ async function runOnCcfolia(dataList, triggerBtn) {
     alert("ccfolia 방 탭이 열려있지 않습니다.");
     return;
   }
-  const tabId = tabs[0].id;
+  // 팝업을 열기 직전에 포커스된 브라우저 창의 ccfolia 탭 우선 사용
+  let targetTab = null;
+  try {
+    const win = await chrome.windows.getLastFocused({ populate: true, windowTypes: ["normal"] });
+    targetTab = win.tabs?.find(t => t.url?.startsWith("https://ccfolia.com/rooms/")) ?? null;
+  } catch (e) { /* 무시 */ }
+  if (!targetTab) {
+    tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+    targetTab = tabs[0];
+  }
+  const tabId = targetTab.id;
   console.log(`[CcfoliaHelper] 실행 시작 - 총 ${dataList.length}개, tabId: ${tabId}`);
 
   const origText = triggerBtn?.textContent;
@@ -324,10 +394,12 @@ async function renderFavTree() {
       <div class="fav-folder-header">
         <span class="fav-folder-arrow">▶</span>
         <span class="fav-folder-name">📁 ${escapeHtml(folder.name)}</span>
+        <input class="fav-folder-name-edit inline-rename-input" type="text" value="${escapeHtml(folder.name)}" style="display:none">
         <div class="fav-folder-actions">
-          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 실행" ${folderItems.length === 0 ? "disabled" : ""}>▶▶ 전체</button>
-          <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 내보내기">⬆</button>
-          ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">🗑</button>` : ""}
+          <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 생성" ${folderItems.length === 0 ? "disabled" : ""}>▶</button>
+          <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="내보내기">⤴</button>
+          ${!isDefault ? `<button class="fav-rename-folder-btn" data-id="${escapeHtml(folder.id)}" title="이름 변경">✎</button>` : ""}
+          ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">✕</button>` : ""}
         </div>
       </div>
       <div class="fav-items">
@@ -340,12 +412,11 @@ async function renderFavTree() {
           <div class="fav-item" data-id="${escapeHtml(b.id)}" draggable="true">
             <span class="fav-item-type ${b.data?.type === "screen" ? "scr" : "mrk"}">${b.data?.type === "screen" ? "SCR" : "MRK"}</span>
             ${b.data?.imageUrl ? `<img class="fav-item-thumb" src="${escapeHtml(b.data.imageUrl)}" onerror="this.style.display='none'" alt="">` : ""}
-            <span class="fav-item-name" title="${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
+            <span class="fav-item-name" data-json='${escapeHtml(JSON.stringify(b.data))}' title="클릭하여 JSON 복사 | ${escapeHtml(b.name)}">${escapeHtml(b.name)}</span>
             <div class="fav-item-actions">
               <button class="fav-run-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="ccfolia에 생성">▶</button>
-              <button class="fav-copy-btn" data-json='${escapeHtml(JSON.stringify(b.data))}' title="복사">📋</button>
-              <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✏️</button>
-              <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">🗑</button>
+              <button class="fav-edit-btn-trigger" data-id="${escapeHtml(b.id)}" title="편집">✎</button>
+              <button class="del-bookmark-btn" data-id="${escapeHtml(b.id)}" title="삭제">✕</button>
             </div>
           </div>
           <div class="fav-edit-form" id="edit-form-${escapeHtml(b.id)}">
@@ -375,16 +446,16 @@ async function renderFavTree() {
             ` : ""}
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Fixed Placement (위치 고정)</span>
-              <input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}>
+              <label class="toggle"><input class="edit-fixed-placement" type="checkbox" ${d.fixedPlacement ? "checked" : ""}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
             </div>
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Fixed Size (크기 고정)</span>
-              <input class="edit-fixed-size" type="checkbox" ${d.fixedSize ? "checked" : ""}>
+              <label class="toggle"><input class="edit-fixed-size" type="checkbox" ${d.fixedSize ? "checked" : ""}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
             </div>
             ${d.type === "screen" ? `
             <div class="fav-edit-toggle-row">
               <span class="fav-edit-label">Plane Panel</span>
-              <input class="edit-plane-panel" type="checkbox" ${d.asPlanePanel ? "checked" : ""}>
+              <label class="toggle"><input class="edit-plane-panel" type="checkbox" ${d.asPlanePanel ? "checked" : ""}><span class="toggle-track"></span><span class="toggle-thumb"></span></label>
             </div>` : ""}
             <div class="fav-edit-label">CLICK ACTION</div>
             <select class="edit-click-action">
@@ -396,8 +467,11 @@ async function renderFavTree() {
               <textarea class="edit-click-action-text">${escapeHtml(caText)}</textarea>
             </div>
             <div class="fav-edit-btns">
-              <button class="fav-edit-btn cancel-edit-btn">취소</button>
-              <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
+              <button class="fav-setdefault-btn" data-type="${b.data?.type === 'screen' ? 'screen' : 'marker'}" data-json='${escapeHtml(JSON.stringify(b.data))}' title="이 항목의 값을 생성기 기본값으로 저장">기본값으로 설정</button>
+              <div class="fav-edit-btns-right">
+                <button class="fav-edit-btn cancel-edit-btn">취소</button>
+                <button class="fav-edit-btn primary save-edit-btn" data-id="${escapeHtml(b.id)}">저장</button>
+              </div>
             </div>
           </div>
           `;
@@ -413,23 +487,76 @@ async function renderFavTree() {
     const delFolderBtn = folderEl.querySelector(".del-folder-btn");
     if (delFolderBtn) {
       delFolderBtn.addEventListener("click", async () => {
-        if (!confirm(`"${folder.name}" 폴더와 항목을 모두 삭제할까요?`)) return;
         const d = await getFavData();
+        const folderIdx = d.folders.findIndex(f => f.id === folder.id);
+        if (folderIdx === -1) return;
+        const removedFolder = d.folders[folderIdx];
+        const removedBookmarks = d.bookmarks.filter(b => b.folderId === folder.id);
         await saveFavData({
           folders: d.folders.filter((f) => f.id !== folder.id),
           bookmarks: d.bookmarks.filter((b) => b.folderId !== folder.id),
         });
         renderFavTree();
+        showUndoToast(`"${removedFolder.name}" 폴더 삭제됨`, async () => {
+          const d2 = await getFavData();
+          d2.folders.splice(folderIdx, 0, removedFolder);
+          d2.bookmarks.push(...removedBookmarks);
+          await saveFavData(d2);
+          renderFavTree();
+        });
       });
     }
 
-    folderEl.querySelectorAll(".fav-copy-btn").forEach((btn) => {
+    // ── 폴더 이름 변경 ──
+    const renameFolderBtn = folderEl.querySelector(".fav-rename-folder-btn");
+    if (renameFolderBtn) {
+      renameFolderBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const nameSpan = folderEl.querySelector(".fav-folder-name");
+        const nameInput = folderEl.querySelector(".fav-folder-name-edit");
+        startInlineRename(nameSpan, nameInput, async (newName) => {
+          const d = await getFavData();
+          const f = d.folders.find(f => f.id === folder.id);
+          if (!f) return;
+          f.name = newName;
+          await saveFavData(d);
+          nameSpan.textContent = `📁 ${newName}`;
+          folder.name = newName;
+        });
+      });
+    }
+
+    // ── 이름 클릭 → JSON 복사 ──
+    folderEl.querySelectorAll(".fav-item-name").forEach((span) => {
+      span.addEventListener("click", (e) => {
+        e.stopPropagation();
+        navigator.clipboard.writeText(span.dataset.json).then(() => {
+          span.classList.add("copied-flash");
+          setTimeout(() => span.classList.remove("copied-flash"), 1200);
+          showPopupToast("복사되었습니다!");
+        });
+      });
+    });
+
+    // ── 기본값으로 설정 버튼 ──
+    folderEl.querySelectorAll(".fav-setdefault-btn").forEach((btn) => {
       btn.addEventListener("click", (e) => {
         e.stopPropagation();
-        navigator.clipboard.writeText(btn.dataset.json).then(() => {
-          btn.textContent = "✓";
-          setTimeout(() => (btn.textContent = "📋"), 1500);
-        });
+        const type = btn.dataset.type; // "marker" | "screen"
+        const d = JSON.parse(btn.dataset.json);
+        const saved = {
+          width: d.width ?? 0,
+          height: d.height ?? 0,
+          priority: d.overlapPriority ?? 0,
+          imageUrl: d.imageUrl ?? "",
+          fixedPlacement: d.fixedPlacement ?? false,
+          fixedSize: d.fixedSize ?? false,
+          ...(type === "screen" ? { coverImageUrl: d.coverImageUrl ?? "", asPlanePanel: d.asPlanePanel ?? false } : {}),
+        };
+        chrome.storage.local.set({ [`${type}Defaults`]: saved });
+        applyGeneratorDefaults(type, saved);
+        btn.textContent = "✓ 설정됨";
+        setTimeout(() => (btn.textContent = "기본값으로 설정"), 1500);
       });
     });
 
@@ -437,8 +564,17 @@ async function renderFavTree() {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const d = await getFavData();
-        await saveFavData({ ...d, bookmarks: d.bookmarks.filter((b) => b.id !== btn.dataset.id) });
+        const idx = d.bookmarks.findIndex(b => b.id === btn.dataset.id);
+        if (idx === -1) return;
+        const [removed] = d.bookmarks.splice(idx, 1);
+        await saveFavData(d);
         renderFavTree();
+        showUndoToast(`"${removed.name}" 삭제됨`, async () => {
+          const d2 = await getFavData();
+          d2.bookmarks.splice(idx, 0, removed);
+          await saveFavData(d2);
+          renderFavTree();
+        });
       });
     });
 
@@ -782,14 +918,83 @@ document.getElementById("screenFavBtn")?.addEventListener("click", () => {
   openAddBookmarkForm(json, json.memo.slice(0, 20));
 });
 
-// 즐겨찾기 탭 클릭 시 렌더링
+// 탭 클릭 시 추가 처리
 document.querySelectorAll(".tab").forEach((tab) => {
   tab.addEventListener("click", () => {
     if (tab.dataset.tab === "fav") renderFavTree();
+    if (tab.dataset.tab === "standing") initStandingTab();
   });
 });
 
+// ── 스탠딩 탭 자동 감지 (문서 재방문 시) ──
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && document.querySelector(".tab[data-tab='standing'].active")) {
+    initStandingTab();
+  }
+});
+
+// ── 핀업 (사이드 패널로 고정) ────────────────────────────────────────
+(function initPinBtn() {
+  const pinBtn = document.getElementById("pinBtn");
+  if (!pinBtn) return;
+
+  // 사이드 패널 여부 감지 (사이드 패널에서 열리면 window.outerWidth >> 300)
+  const isSidePanel = typeof chrome.sidePanel !== "undefined" &&
+    document.documentElement.classList.contains("side-panel-mode");
+
+  if (isSidePanel) {
+    pinBtn.classList.add("pinned");
+    pinBtn.title = "사이드 패널로 고정됨";
+    return;
+  }
+
+  pinBtn.addEventListener("click", async () => {
+    if (chrome.sidePanel?.open) {
+      try {
+        const win = await chrome.windows.getCurrent();
+        await chrome.sidePanel.open({ windowId: win.id });
+        window.close();
+        return;
+      } catch (e) {
+        console.warn("[CCFHelper] sidePanel.open failed:", e);
+      }
+    }
+    // Fallback: 별도 팝업 창
+    const activeTab = document.querySelector(".tab.active")?.dataset?.tab ?? "";
+    const url = chrome.runtime.getURL("popup.html") + `?pinned=1${activeTab ? "&tab=" + activeTab : ""}`;
+    chrome.windows.create({ url, type: "popup", width: 340, height: 600, focused: true });
+    window.close();
+  });
+
+  // 핀된 창(fallback window)에서 초기 탭 복원
+  const initialTab = new URLSearchParams(window.location.search).get("tab");
+  if (initialTab) {
+    const tabEl = document.querySelector(`[data-tab="${initialTab}"]`);
+    if (tabEl && !tabEl.classList.contains("disabled")) tabEl.click();
+  }
+})();
+
 renderFavTree();
+
+// ── 캐릭터 감지 자동 알림 (inject → content → popup) ──────────────────
+chrome.runtime.onMessage.addListener((msg) => {
+  if (msg.type !== "CHAR_DETECTED" || !msg.charId) return;
+  _stdCharId = msg.charId;
+  _stdCharName = msg.charName || msg.charId;
+  const nameEl = document.getElementById("stdCharName");
+  if (nameEl) {
+    nameEl.textContent = `캐릭터: ${_stdCharName}`;
+    nameEl.className = "std-char-name detected";
+  }
+  const uploadBtn = document.getElementById("stdUploadBtn");
+  if (uploadBtn) {
+    uploadBtn.disabled = false;
+    uploadBtn.innerHTML = "📁 파일에서 추가<span class='std-upload-hint'> · 드래그 앤 드롭 가능</span>";
+  }
+  const savePackBtn = document.getElementById("stdSavePackBtn");
+  if (savePackBtn) savePackBtn.disabled = false;
+  if (document.querySelector(".tab[data-tab='standing'].active")) renderStandingPacks();
+});
 
 // =============================================
 // 내보내기 / 불러오기
@@ -855,3 +1060,638 @@ document.getElementById("importAllInput")?.addEventListener("change", async (e) 
   await importJson(file, mode);
   e.target.value = "";
 });
+
+// =============================================
+// 스탠딩 탭
+// =============================================
+
+let _stdCharId = null;
+let _stdCharName = null;
+let _pendingFilePackId = null;
+
+async function getStandingPacks() {
+  return new Promise(r => chrome.storage.local.get({ standingPacks: null, standingLib: [] }, d => {
+    if (d.standingPacks !== null) { r(d.standingPacks); return; }
+    // 기존 standingLib → 기본 팩으로 마이그레이션
+    const lib = d.standingLib ?? [];
+    if (lib.length > 0) {
+      const packs = [{ id: "sp_default", name: "기본 팩", items: lib.map(i => ({ name: i.name, imageUrl: i.imageUrl })) }];
+      chrome.storage.local.set({ standingPacks: packs });
+      r(packs);
+    } else {
+      r([]);
+    }
+  }));
+}
+
+async function saveStandingPacks(packs) {
+  return new Promise(r => chrome.storage.local.set({ standingPacks: packs }, r));
+}
+
+function genStdPackId() {
+  return "sp_" + Date.now().toString(36) + Math.random().toString(36).slice(2, 5);
+}
+
+async function getCcfoliaTab() {
+  const tabs = await chrome.tabs.query({ url: "https://ccfolia.com/rooms/*" });
+  if (!tabs.length) return null;
+  let target = null;
+  try {
+    const win = await chrome.windows.getLastFocused({ populate: true, windowTypes: ["normal"] });
+    target = win.tabs?.find(t => t.url?.startsWith("https://ccfolia.com/rooms/")) ?? null;
+  } catch (_) {}
+  if (!target) {
+    tabs.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+    target = tabs[0];
+  }
+  return target;
+}
+
+async function initStandingTab() {
+  const nameEl = document.getElementById("stdCharName");
+  const uploadBtn = document.getElementById("stdUploadBtn");
+  const savePackBtn = document.getElementById("stdSavePackBtn");
+  nameEl.textContent = "감지 중...";
+  nameEl.className = "std-char-name";
+
+  const tab = await getCcfoliaTab();
+  let charData = null;
+  if (tab) {
+    try { charData = (await chrome.tabs.sendMessage(tab.id, { type: "GET_CHAR_FROM_DIALOG" }))?.charData; }
+    catch (_) {}
+  }
+
+  if (charData?.id) {
+    _stdCharId = charData.id;
+    _stdCharName = charData.name || "(이름 없음)";
+    nameEl.textContent = `캐릭터: ${_stdCharName}`;
+    nameEl.className = "std-char-name detected";
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.innerHTML = "📁 파일에서 추가<span class='std-upload-hint'> · 드래그 앤 드롭 가능</span>"; }
+    if (savePackBtn) savePackBtn.disabled = false;
+  } else {
+    _stdCharId = null; _stdCharName = null;
+    nameEl.textContent = tab ? "캐릭터 편집 화면을 열어 주세요" : "ccfolia 방 탭이 없습니다";
+    if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.innerHTML = "📁 파일에서 추가<span class='std-upload-hint'> · 드래그 앤 드롭 가능</span>"; }
+    if (savePackBtn) savePackBtn.disabled = true;
+  }
+  await renderStandingPacks();
+}
+
+async function renderStandingPacks() {
+  const packs = await getStandingPacks();
+  const listEl = document.getElementById("stdPackList");
+  if (!listEl) return;
+
+  // 재렌더 전 현재 열린/닫힌 상태 저장 (첫 렌더링 시 existingPackIds가 비어있음 → 모두 닫힌 상태 시작)
+  const existingPackIds = new Set([...listEl.querySelectorAll(".std-pack")].map(el => el.dataset.id));
+  const openPackIds = new Set([...listEl.querySelectorAll(".std-pack.open")].map(el => el.dataset.id));
+  const isFirstRender = existingPackIds.size === 0;
+
+  if (!packs.length) {
+    listEl.innerHTML = `<div class="std-lib-empty">저장된 팩이 없습니다.<br>팩 만들기 또는 현재 스탠딩 저장으로 추가하세요.</div>`;
+    return;
+  }
+
+  listEl.innerHTML = "";
+  packs.forEach((pack) => {
+    const packEl = document.createElement("div");
+    // 첫 렌더링: 모두 닫힘 / 재렌더링: 새 팩은 열림, 기존 팩은 이전 상태 복원
+    const shouldOpen = !isFirstRender && (!existingPackIds.has(pack.id) || openPackIds.has(pack.id));
+    packEl.className = `std-pack${shouldOpen ? " open" : ""}`;
+    packEl.dataset.id = pack.id;
+    packEl.draggable = true;
+
+    const disabledAttr = _stdCharId ? "" : "disabled";
+
+    packEl.innerHTML = `
+      <div class="std-pack-header">
+        <span class="std-pack-arrow">▶</span>
+        <span class="std-pack-name">${escapeHtml(pack.name)}</span>
+        <input class="std-pack-name-edit inline-rename-input" type="text" value="${escapeHtml(pack.name)}" style="display:none">
+        <div class="std-pack-actions">
+          <button class="std-pack-rename-btn" title="이름 변경">✎</button>
+          <button class="std-pack-apply-btn" title="전체 캐릭터에 적용" ${disabledAttr}>▶</button>
+          <button class="std-pack-del-btn" title="팩 삭제">✕</button>
+        </div>
+      </div>
+      <div class="std-pack-items">
+        ${pack.items.length === 0
+          ? '<div class="std-lib-empty">항목 없음</div>'
+          : pack.items.map((item, idx) => `
+            <div class="std-lib-item" draggable="true" data-pack-id="${escapeHtml(pack.id)}" data-item-idx="${idx}">
+              ${item.imageUrl
+                ? `<img class="std-lib-thumb" src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
+                : `<div class="std-lib-thumb-placeholder"></div>`}
+              <span class="std-lib-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+              <input class="std-item-name-edit inline-rename-input" type="text" value="${escapeHtml(item.name)}" style="display:none">
+              <div class="std-lib-actions">
+                <button class="std-item-rename-btn" title="이름 변경">✎</button>
+                <button class="std-apply-btn std-item-apply-btn" data-pack-id="${escapeHtml(pack.id)}" data-idx="${idx}" ${disabledAttr}>▶</button>
+                <button class="std-del-btn std-item-del-btn" data-pack-id="${escapeHtml(pack.id)}" data-idx="${idx}" title="삭제">✕</button>
+              </div>
+            </div>
+          `).join("")}
+        <div class="std-pack-url-form std-url-form" style="display:none;margin:4px 8px 0;border-radius:4px;">
+          <input type="text" class="pack-url-name-input" placeholder="이름 (예: 미소)">
+          <input type="text" class="pack-url-image-input" placeholder="이미지 URL">
+          <div class="std-url-form-btns">
+            <button class="pack-url-cancel-btn">취소</button>
+            <button class="primary pack-url-save-btn">저장</button>
+          </div>
+        </div>
+        <div style="padding:4px 8px;display:flex;gap:4px;">
+          <button class="std-pack-add-url-btn" data-pack-id="${escapeHtml(pack.id)}">+ URL 추가</button>
+          <button class="std-pack-add-url-btn std-pack-upload-file-btn" data-pack-id="${escapeHtml(pack.id)}">+ 파일 추가</button>
+        </div>
+      </div>
+    `;
+
+    packEl.querySelector(".std-pack-header").addEventListener("click", (e) => {
+      if (e.target.closest("button")) return;
+      packEl.classList.toggle("open");
+    });
+
+    // 팩 전체 적용
+    const applyAllBtn = packEl.querySelector(".std-pack-apply-btn");
+    applyAllBtn?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!_stdCharId) return;
+      if (pack.items.length === 0) { showPopupToast("항목 없음"); return; }
+      const tab = await getCcfoliaTab();
+      if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+      const orig = applyAllBtn.textContent;
+      applyAllBtn.textContent = "⏳"; applyAllBtn.disabled = true;
+      try {
+        const files = pack.items.map(item => ({
+          faceName: item.name,
+          directUrl: item.imageUrl,
+        }));
+        const res = await chrome.tabs.sendMessage(tab.id, {
+          type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files,
+        });
+        if (res?.ok) showPopupToast(`"${pack.name}" 팩 ${res.count}개 적용됨!`);
+        else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+      } catch (err) { showPopupToast("오류: " + err.message); }
+      applyAllBtn.textContent = orig; applyAllBtn.disabled = !_stdCharId;
+    });
+
+    // 팩 이름 변경 (인라인)
+    packEl.querySelector(".std-pack-rename-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const nameSpan = packEl.querySelector(".std-pack-name");
+      const nameInput = packEl.querySelector(".std-pack-name-edit");
+      startInlineRename(nameSpan, nameInput, async (newName) => {
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === pack.id);
+        if (!p) return;
+        p.name = newName;
+        await saveStandingPacks(ps);
+        nameSpan.textContent = newName;
+        pack.name = newName;
+      });
+    });
+
+    // 팩 삭제
+    packEl.querySelector(".std-pack-del-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const ps = await getStandingPacks();
+      const packIdx = ps.findIndex(p => p.id === pack.id);
+      if (packIdx === -1) return;
+      const removedPack = ps[packIdx];
+      await saveStandingPacks(ps.filter(p => p.id !== pack.id));
+      renderStandingPacks();
+      showUndoToast(`"${removedPack.name}" 팩 삭제됨`, async () => {
+        const ps2 = await getStandingPacks();
+        ps2.splice(packIdx, 0, removedPack);
+        await saveStandingPacks(ps2);
+        renderStandingPacks();
+      });
+    });
+
+    // 개별 항목 적용
+    packEl.querySelectorAll(".std-item-apply-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        if (!_stdCharId) return;
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === btn.dataset.packId);
+        const item = p?.items[parseInt(btn.dataset.idx)];
+        if (!item) return;
+        const tab = await getCcfoliaTab();
+        if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+        const faceName = item.name;
+        try {
+          const res = await chrome.tabs.sendMessage(tab.id, {
+            type: "ADD_STANDING_URL_FROM_POPUP", charId: _stdCharId, faceName, imageUrl: item.imageUrl,
+          });
+          if (res?.ok) showPopupToast(`"${item.name}" 적용됨!`);
+          else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+        } catch (err) { showPopupToast("오류: " + err.message); }
+      });
+    });
+
+    // 개별 항목 삭제
+    packEl.querySelectorAll(".std-item-del-btn").forEach(btn => {
+      btn.addEventListener("click", async (e) => {
+        e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx);
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === btn.dataset.packId);
+        if (!p) return;
+        const [removed] = p.items.splice(idx, 1);
+        await saveStandingPacks(ps);
+        renderStandingPacks();
+        showUndoToast(`"${removed.name}" 삭제됨`, async () => {
+          const ps2 = await getStandingPacks();
+          const p2 = ps2.find(p => p.id === btn.dataset.packId);
+          if (!p2) return;
+          p2.items.splice(idx, 0, removed);
+          await saveStandingPacks(ps2);
+          renderStandingPacks();
+        });
+      });
+    });
+
+    // 개별 항목 인라인 이름 변경
+    packEl.querySelectorAll(".std-item-rename-btn").forEach((btn, i) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const itemEl = btn.closest(".std-lib-item");
+        const nameSpan = itemEl.querySelector(".std-lib-name");
+        const nameInput = itemEl.querySelector(".std-item-name-edit");
+        startInlineRename(nameSpan, nameInput, async (newName) => {
+          const ps = await getStandingPacks();
+          const p = ps.find(p => p.id === itemEl.dataset.packId);
+          if (!p) return;
+          const itemIdx = parseInt(itemEl.dataset.itemIdx);
+          if (!p.items[itemIdx]) return;
+          p.items[itemIdx].name = newName;
+          await saveStandingPacks(ps);
+          nameSpan.textContent = newName;
+          nameSpan.title = newName;
+        });
+      });
+    });
+
+    // 개별 항목 드래그앤드롭 순서 변경
+    packEl.querySelectorAll(".std-lib-item").forEach((itemEl) => {
+      itemEl.addEventListener("dragstart", (e) => {
+        e.stopPropagation();
+        e.dataTransfer.setData("stdItemPackId", itemEl.dataset.packId);
+        e.dataTransfer.setData("stdItemIdx", itemEl.dataset.itemIdx);
+        e.dataTransfer.effectAllowed = "move";
+        itemEl.classList.add("dragging");
+      });
+      itemEl.addEventListener("dragend", () => {
+        itemEl.classList.remove("dragging");
+        packEl.querySelectorAll(".std-lib-item").forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+      });
+      itemEl.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("stditempackid")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        packEl.querySelectorAll(".std-lib-item").forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+        const rect = itemEl.getBoundingClientRect();
+        itemEl.classList.add(e.clientY < rect.top + rect.height / 2 ? "drag-over" : "drag-over-bottom");
+      });
+      itemEl.addEventListener("dragleave", (e) => {
+        if (!itemEl.contains(e.relatedTarget))
+          itemEl.classList.remove("drag-over", "drag-over-bottom");
+      });
+      itemEl.addEventListener("drop", async (e) => {
+        itemEl.classList.remove("drag-over", "drag-over-bottom");
+        const fromPackId = e.dataTransfer.getData("stdItemPackId");
+        const fromIdx = parseInt(e.dataTransfer.getData("stdItemIdx"));
+        const toIdx = parseInt(itemEl.dataset.itemIdx);
+        if (!fromPackId || fromPackId !== itemEl.dataset.packId || fromIdx === toIdx) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === fromPackId);
+        if (!p) return;
+        const rect = itemEl.getBoundingClientRect();
+        const insertBefore = e.clientY < rect.top + rect.height / 2;
+        const [moved] = p.items.splice(fromIdx, 1);
+        // After removing fromIdx, recalculate toIdx
+        const adjustedTo = fromIdx < toIdx ? toIdx - 1 : toIdx;
+        p.items.splice(insertBefore ? adjustedTo : adjustedTo + 1, 0, moved);
+        await saveStandingPacks(ps);
+        renderStandingPacks();
+      });
+    });
+
+    // URL 추가 버튼 → 인라인 폼 토글
+    packEl.querySelector(".std-pack-add-url-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      const urlForm = packEl.querySelector(".std-pack-url-form");
+      const isOpen = urlForm.style.display !== "none";
+      document.querySelectorAll(".std-pack-url-form").forEach(f => { f.style.display = "none"; });
+      if (!isOpen) {
+        urlForm.querySelector(".pack-url-name-input").value = "";
+        urlForm.querySelector(".pack-url-image-input").value = "";
+        urlForm.style.display = "block";
+        urlForm.querySelector(".pack-url-name-input").focus();
+      }
+    });
+
+    // 인라인 URL 폼 취소
+    packEl.querySelector(".pack-url-cancel-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      packEl.querySelector(".std-pack-url-form").style.display = "none";
+    });
+
+    // 인라인 URL 폼 저장
+    packEl.querySelector(".pack-url-save-btn")?.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      const urlForm = packEl.querySelector(".std-pack-url-form");
+      const name = urlForm.querySelector(".pack-url-name-input").value.trim();
+      const imageUrl = urlForm.querySelector(".pack-url-image-input").value.trim();
+      if (!name) { alert("이름을 입력해주세요."); return; }
+      if (!imageUrl) { alert("이미지 URL을 입력해주세요."); return; }
+      const packs = await getStandingPacks();
+      const p = packs.find(p => p.id === pack.id);
+      if (!p) return;
+      p.items.push({ name, imageUrl });
+      await saveStandingPacks(packs);
+      urlForm.style.display = "none";
+      await renderStandingPacks();
+      showPopupToast(`"${name}" 저장됨!`);
+    });
+
+    // 파일 추가 버튼
+    packEl.querySelector(".std-pack-upload-file-btn")?.addEventListener("click", (e) => {
+      e.stopPropagation();
+      _pendingFilePackId = pack.id;
+      document.getElementById("stdPackFileInput").click();
+    });
+
+    // ── 팩 순서 드래그 ──
+    packEl.addEventListener("dragstart", (e) => {
+      if (e.target.closest(".std-lib-item")) return; // 아이템 드래그와 구분
+      e.stopPropagation();
+      e.dataTransfer.setData("packId", pack.id);
+      e.dataTransfer.effectAllowed = "move";
+      setTimeout(() => packEl.classList.add("pack-dragging"), 0);
+    });
+    packEl.addEventListener("dragend", () => {
+      packEl.classList.remove("pack-dragging");
+      listEl.querySelectorAll(".std-pack").forEach(el => el.classList.remove("pack-drag-over-top", "pack-drag-over-bottom"));
+    });
+    packEl.addEventListener("dragover", (e) => {
+      if (!e.dataTransfer.types.includes("packid")) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "move";
+      listEl.querySelectorAll(".std-pack").forEach(el => el.classList.remove("pack-drag-over-top", "pack-drag-over-bottom"));
+      const rect = packEl.getBoundingClientRect();
+      packEl.classList.add(e.clientY < rect.top + rect.height / 2 ? "pack-drag-over-top" : "pack-drag-over-bottom");
+    });
+    packEl.addEventListener("dragleave", (e) => {
+      if (!packEl.contains(e.relatedTarget)) packEl.classList.remove("pack-drag-over-top", "pack-drag-over-bottom");
+    });
+    packEl.addEventListener("drop", async (e) => {
+      if (!e.dataTransfer.types.includes("packid")) return;
+      e.preventDefault(); e.stopPropagation();
+      packEl.classList.remove("pack-drag-over-top", "pack-drag-over-bottom");
+      const fromId = e.dataTransfer.getData("packId");
+      if (!fromId || fromId === pack.id) return;
+      const rect = packEl.getBoundingClientRect();
+      const insertBefore = e.clientY < rect.top + rect.height / 2;
+      const ps = await getStandingPacks();
+      const fromIdx = ps.findIndex(p => p.id === fromId);
+      const toIdx = ps.findIndex(p => p.id === pack.id);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const [moved] = ps.splice(fromIdx, 1);
+      const newToIdx = ps.findIndex(p => p.id === pack.id);
+      ps.splice(insertBefore ? newToIdx : newToIdx + 1, 0, moved);
+      await saveStandingPacks(ps);
+      await renderStandingPacks();
+    });
+
+    listEl.appendChild(packEl);
+  });
+}
+
+// 재감지 버튼
+document.getElementById("stdRefreshBtn")?.addEventListener("click", initStandingTab);
+
+// 파일 업로드
+document.getElementById("stdUploadBtn")?.addEventListener("click", () => {
+  if (!_stdCharId) { showPopupToast("캐릭터를 먼저 감지해주세요"); return; }
+  document.getElementById("stdFileInput").click();
+});
+document.getElementById("stdFileInput")?.addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (!files.length || !_stdCharId) {
+    if (!_stdCharId) showPopupToast("캐릭터를 먼저 감지해주세요");
+    return;
+  }
+  const tab = await getCcfoliaTab();
+  if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+
+  showPopupToast(`${files.length}개 업로드 중...`);
+  try {
+    const fileData = await Promise.all(files.map(async f => {
+      const buffer = await f.arrayBuffer();
+      const bufferArr = Array.from(new Uint8Array(buffer));
+      return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: bufferArr };
+    }));
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
+    });
+    if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
+    else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+  } catch (err) { showPopupToast("오류: " + err.message); }
+});
+
+// 현재 스탠딩 저장 (캐릭터 faces → 팩)
+document.getElementById("stdSavePackBtn")?.addEventListener("click", async () => {
+  if (!_stdCharId) { showPopupToast("캐릭터를 먼저 감지해주세요"); return; }
+  const tab = await getCcfoliaTab();
+  if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+  showPopupToast("스탠딩 읽는 중...");
+  let faces;
+  try {
+    const res = await chrome.tabs.sendMessage(tab.id, { type: "GET_CHAR_FACES_FROM_POPUP", charId: _stdCharId });
+    if (!res?.ok) throw new Error(res?.error ?? "오류");
+    faces = res.faces ?? [];
+  } catch (err) { showPopupToast("오류: " + err.message); return; }
+  if (faces.length === 0) { showPopupToast("저장된 스탠딩이 없습니다"); return; }
+  const packName = prompt(`팩 이름을 입력하세요 (${faces.length}개 스탠딩)`, _stdCharName || "새 팩");
+  if (!packName?.trim()) return;
+  const packs = await getStandingPacks();
+  packs.push({ id: genStdPackId(), name: packName.trim(), items: faces.map(f => ({ name: f.name, imageUrl: f.imageUrl })) });
+  await saveStandingPacks(packs);
+  await renderStandingPacks();
+  showPopupToast(`"${packName.trim()}" 팩 저장됨! (${faces.length}개)`);
+});
+
+// + 팩 만들기 (인라인 폼)
+document.getElementById("stdNewPackBtn")?.addEventListener("click", () => {
+  const form = document.getElementById("stdNewPackForm");
+  form.style.display = "block";
+  const input = document.getElementById("stdNewPackNameInput");
+  input.value = "";
+  input.focus();
+});
+
+document.getElementById("stdNewPackCancelBtn")?.addEventListener("click", () => {
+  document.getElementById("stdNewPackForm").style.display = "none";
+});
+
+async function confirmNewPack() {
+  const name = document.getElementById("stdNewPackNameInput").value.trim();
+  if (!name) return;
+  document.getElementById("stdNewPackForm").style.display = "none";
+  const packs = await getStandingPacks();
+  packs.push({ id: genStdPackId(), name, items: [] });
+  await saveStandingPacks(packs);
+  await renderStandingPacks();
+  showPopupToast(`"${name}" 팩 만들기 완료!`);
+}
+
+document.getElementById("stdNewPackConfirmBtn")?.addEventListener("click", confirmNewPack);
+document.getElementById("stdNewPackNameInput")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") confirmNewPack();
+  if (e.key === "Escape") document.getElementById("stdNewPackForm").style.display = "none";
+});
+
+// 팩 파일 추가 (CDN 전용, 캐릭터 불필요)
+document.getElementById("stdPackFileInput")?.addEventListener("change", async (e) => {
+  const files = [...e.target.files];
+  e.target.value = "";
+  if (!files.length || !_pendingFilePackId) return;
+  const packId = _pendingFilePackId;
+  _pendingFilePackId = null;
+  const tab = await getCcfoliaTab();
+  if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+  showPopupToast(`${files.length}개 업로드 중...`);
+  try {
+    const fileData = await Promise.all(files.map(async f => {
+      const buffer = await f.arrayBuffer();
+      return { name: f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: Array.from(new Uint8Array(buffer)) };
+    }));
+    const res = await chrome.tabs.sendMessage(tab.id, {
+      type: "UPLOAD_FILES_TO_CDN_FROM_POPUP", files: fileData,
+    });
+    if (!res?.ok) throw new Error(res?.error ?? "오류");
+    const packs = await getStandingPacks();
+    const p = packs.find(p => p.id === packId);
+    if (!p) { showPopupToast("팩을 찾을 수 없음"); return; }
+    for (const item of res.items) {
+      let itemName = "@" + item.name;
+      let ctr = 1;
+      while (p.items.some(ex => ex.name === itemName)) itemName = `@${item.name} (${ctr++})`;
+      p.items.push({ name: itemName, imageUrl: item.url });
+    }
+    await saveStandingPacks(packs);
+    await renderStandingPacks();
+    showPopupToast(`${res.items.length}개 추가됨!`);
+  } catch (err) { showPopupToast("오류: " + err.message); }
+});
+
+// ── 파일 드래그앤드롭 업로드 (stdUploadSection) ──
+const stdUploadSection = document.getElementById("stdUploadSection");
+if (stdUploadSection) {
+  stdUploadSection.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    document.getElementById("stdUploadBtn")?.classList.add("drag-over");
+  });
+  stdUploadSection.addEventListener("dragleave", (e) => {
+    if (!stdUploadSection.contains(e.relatedTarget))
+      document.getElementById("stdUploadBtn")?.classList.remove("drag-over");
+  });
+  stdUploadSection.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    document.getElementById("stdUploadBtn")?.classList.remove("drag-over");
+    if (!_stdCharId) { showPopupToast("캐릭터를 먼저 감지해주세요"); return; }
+    const files = [...(e.dataTransfer.files || [])].filter(f => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const tab = await getCcfoliaTab();
+    if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+    showPopupToast(`${files.length}개 업로드 중...`);
+    try {
+      const fileData = await Promise.all(files.map(async f => {
+        const buffer = await f.arrayBuffer();
+        const bufferArr = Array.from(new Uint8Array(buffer));
+        return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: bufferArr };
+      }));
+      const res = await chrome.tabs.sendMessage(tab.id, {
+        type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
+      });
+      if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
+      else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+    } catch (err) { showPopupToast("오류: " + err.message); }
+  });
+}
+
+// ── 팩 내보내기/불러오기 ──────────────────────────────────────────────
+document.getElementById("packExportBtn")?.addEventListener("click", async () => {
+  const packs = await getStandingPacks();
+  downloadJson({ standingPacks: packs }, "ccfolia-packs.json");
+});
+
+document.getElementById("packImportBtn")?.addEventListener("click", () => {
+  document.getElementById("packImportInput").click();
+});
+
+document.getElementById("packImportInput")?.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = "";
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      const imported = data.standingPacks ?? data;
+      if (!Array.isArray(imported)) { showPopupToast("올바른 팩 파일이 아닙니다"); return; }
+      const existing = await getStandingPacks();
+      const existingIds = new Set(existing.map(p => p.id));
+      const newPacks = imported.filter(p => !existingIds.has(p.id));
+      await saveStandingPacks([...existing, ...newPacks]);
+      await renderStandingPacks();
+      showPopupToast(`${newPacks.length}개 팩 불러옴`);
+    } catch { showPopupToast("파일 파싱 오류"); }
+  };
+  reader.readAsText(file);
+});
+
+// ── 이미지 호버 미리보기 ──────────────────────────────────────────────
+(function initImgPreview() {
+  const preview = document.getElementById("imgPreview");
+  if (!preview) return;
+  const img = preview.querySelector("img");
+
+  function positionPreview(e) {
+    const pad = 12;
+    let x = e.clientX + pad;
+    let y = e.clientY + pad;
+    const pw = preview.offsetWidth || 168;
+    const ph = preview.offsetHeight || 168;
+    if (x + pw > window.innerWidth) x = e.clientX - pw - pad;
+    if (y + ph > window.innerHeight) y = e.clientY - ph - pad;
+    preview.style.left = x + "px";
+    preview.style.top = y + "px";
+  }
+
+  document.addEventListener("mouseover", (e) => {
+    const thumb = e.target.closest("img.fav-item-thumb, img.std-lib-thumb");
+    if (!thumb || !thumb.src) return;
+    img.src = thumb.src;
+    preview.style.display = "block";
+    positionPreview(e);
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (preview.style.display === "none") return;
+    positionPreview(e);
+  });
+
+  document.addEventListener("mouseout", (e) => {
+    const thumb = e.target.closest("img.fav-item-thumb, img.std-lib-thumb");
+    if (!thumb) return;
+    preview.style.display = "none";
+    img.src = "";
+  });
+})();

@@ -10,7 +10,8 @@
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
   body {
-    width: 320px;
+    width: 100%;
+    min-width: 300px;
     background: #1a1a1a;
     color: #e0e0e0;
     font-family: 'Noto Sans KR', sans-serif;
@@ -57,6 +58,7 @@
   .tab:hover { color: #aaa; }
   .tab.active { color: #00c853; border-bottom-color: #00c853; font-weight: 700; }
   .tab[data-tab="fav"].active { color: #F7E987; border-bottom-color: #F7E987; }
+  .tab[data-tab="standing"].active { color: #80cbc4; border-bottom-color: #80cbc4; }
   .tab.disabled { color: #333; cursor: default; }
   .tab .badge {
     display: inline-block;
@@ -356,6 +358,10 @@
     color: #ce93d8;
     border: 1px solid rgba(206, 147, 216, 0.3);
   }
+  .fav-item-name { cursor: pointer; }
+  .fav-item-name:hover { color: #fff; text-decoration: underline dotted; }
+  .fav-item-name.copied-flash { color: #00c853 !important; }
+
   .fav-item-actions { display: flex; gap: 3px; }
   .fav-item-actions button {
     background: none;
@@ -366,7 +372,19 @@
     padding: 0 2px;
   }
   .fav-item-actions button:hover { color: #ef5350; }
-  .fav-copy-btn:hover { color: #00c853 !important; }
+  .fav-setdefault-btn {
+    background: none !important;
+    border: none !important;
+    color: #4a7a4a !important;
+    font-size: 10px !important;
+    padding: 2px 0 !important;
+    cursor: pointer !important;
+    text-align: left !important;
+    transition: color 0.15s !important;
+    text-decoration: underline dotted !important;
+    flex-shrink: 0 !important;
+  }
+  .fav-setdefault-btn:hover { color: #00c853 !important; }
   .fav-run-btn { color: #00c853 !important; }
   .fav-run-btn:hover { color: #00e676 !important; }
 
@@ -450,18 +468,24 @@
     transition: color 0.15s;
   }
   .fav-run-btn:hover { color: #00e676; }
+  /* 편집 버튼: amber (수정 의미) */
+  .fav-edit-btn-trigger:hover { color: #ffa726 !important; }
   .fav-run-all-btn {
-    font-size: 11px;
+    font-size: 13px;
     background: none;
     border: 1px solid #1a5a2a;
     border-radius: 3px;
     color: #00c853;
     cursor: pointer;
     padding: 1px 5px;
+    line-height: 1;
     transition: background 0.15s, color 0.15s;
   }
   .fav-run-all-btn:hover { background: #1a4a2a; color: #00e676; }
   .fav-run-all-btn:disabled { color: #333; border-color: #2a2a2a; cursor: default; }
+  /* 폴더 버튼별 개별 hover 색 */
+  .del-folder-btn:hover { color: #ef5350 !important; }
+  .fav-export-folder-btn:hover { color: #ccc !important; }
 
 
   /* ── 편집 인라인 폼 ── */
@@ -490,7 +514,8 @@
   }
   .fav-edit-form textarea { resize: vertical; min-height: 70px; }
   .fav-edit-label { font-size: 10px; color: #888; }
-  .fav-edit-btns { display: flex; gap: 5px; justify-content: flex-end; }
+  .fav-edit-btns { display: flex; gap: 5px; justify-content: space-between; align-items: center; }
+  .fav-edit-btns-right { display: flex; gap: 5px; }
   .fav-edit-btn {
     background: #2a2a2a; border: 1px solid #444; border-radius: 3px;
     color: #ccc; font-size: 11px; padding: 4px 10px; cursor: pointer;
@@ -522,13 +547,6 @@
     font-family: inherit;
     width: 100%;
     box-sizing: border-box;
-  }
-  .fav-edit-form input[type="checkbox"] {
-    width: 15px;
-    height: 15px;
-    accent-color: #00c853;
-    cursor: pointer;
-    flex-shrink: 0;
   }
 
 
@@ -615,11 +633,219 @@
     padding: 14px 0 4px;
   }
 
+  /* ── 팝업 토스트 ── */
+  @keyframes toast-in {
+    from { opacity: 0; transform: translateX(-50%) translateY(6px); }
+    to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+  }
+
   /* ── 폴더 드래그 ── */
   .fav-folder[draggable="true"] { cursor: grab; }
   .fav-folder.folder-dragging { opacity: 0.4; }
   .fav-folder.folder-drag-over-top { border-top: 2px solid #F7E987; }
   .fav-folder.folder-drag-over-bottom { border-bottom: 2px solid #F7E987; }
+
+  /* ── 스탠딩 탭 ── */
+  .std-char-bar {
+    display: flex; align-items: center; gap: 6px;
+    background: #252525; border-radius: 6px;
+    padding: 7px 10px; margin-bottom: 8px;
+  }
+  .std-char-name { flex: 1; font-size: 12px; color: #666; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .std-char-name.detected { color: #80cbc4; }
+  .std-refresh-btn {
+    background: none; border: none; color: #555; font-size: 14px;
+    cursor: pointer; padding: 0 2px; line-height: 1; flex-shrink: 0;
+  }
+  .std-refresh-btn:hover { color: #80cbc4; }
+  .std-section { margin-bottom: 10px; }
+  .std-upload-btn {
+    width: 100%; padding: 7px; border: 1px dashed #444; border-radius: 6px;
+    background: none; color: #80cbc4; font-size: 12px; cursor: pointer;
+    font-family: inherit; transition: background 0.15s;
+  }
+  .std-upload-btn:hover { background: rgba(128,203,196,0.08); }
+  .std-lib-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .std-lib-title { font-size: 11px; color: #777; }
+  .std-add-url-btn {
+    background: none; border: 1px solid #444; border-radius: 4px;
+    color: #aaa; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    font-family: inherit;
+  }
+  .std-add-url-btn:hover { border-color: #80cbc4; color: #80cbc4; }
+  .std-url-form {
+    background: #252525; border-radius: 6px; padding: 8px; margin-bottom: 8px;
+  }
+  .std-url-form input {
+    width: 100%; box-sizing: border-box; background: #1a1a1a; border: 1px solid #333;
+    border-radius: 4px; color: #e0e0e0; font-size: 11px; padding: 5px 7px;
+    margin-bottom: 5px; font-family: inherit;
+  }
+  .std-url-form-btns { display: flex; gap: 5px; justify-content: flex-end; }
+  .std-url-form-btns button {
+    border: 1px solid #444; border-radius: 4px; background: none;
+    color: #aaa; font-size: 11px; padding: 3px 10px; cursor: pointer; font-family: inherit;
+  }
+  .std-url-form-btns button.primary { background: #1b5e20; border-color: #1b5e20; color: #fff; }
+  .std-url-form-btns button:hover:not(.primary) { border-color: #666; color: #ccc; }
+  .std-lib-list { display: flex; flex-direction: column; gap: 4px; }
+  .std-lib-item {
+    display: flex; align-items: center; gap: 6px;
+    background: #252525; border-radius: 5px; padding: 5px 7px;
+  }
+  .std-lib-thumb {
+    width: 32px; height: 32px; border-radius: 3px; object-fit: cover; flex-shrink: 0;
+  }
+  .std-lib-thumb-placeholder {
+    width: 32px; height: 32px; border-radius: 3px; background: #333; flex-shrink: 0;
+  }
+  .std-lib-name {
+    flex: 1; font-size: 11px; color: #ccc; overflow: hidden;
+    text-overflow: ellipsis; white-space: nowrap;
+  }
+  .std-lib-actions { display: flex; gap: 4px; flex-shrink: 0; }
+  .std-lib-actions button {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 13px; padding: 0 2px; line-height: 1;
+    transition: color 0.15s; flex-shrink: 0;
+  }
+  .std-lib-actions button:disabled { color: #333; cursor: default; }
+  .std-item-rename-btn:hover { color: #ffa726; }
+  .std-apply-btn { color: #80cbc4; }
+  .std-apply-btn:hover:not(:disabled) { color: #b2dfdb; }
+  .std-apply-btn:disabled { color: #333; cursor: default; }
+  .std-del-btn:hover { color: #ef5350; }
+  .std-lib-empty { font-size: 11px; color: #555; text-align: center; padding: 12px 0; }
+
+  /* ── 스탠딩 팩 ── */
+  .std-pack {
+    margin-bottom: 4px;
+    border: 1px solid #2a2a2a;
+    border-radius: 5px;
+    overflow: hidden;
+  }
+  .std-pack-header {
+    display: flex; align-items: center; padding: 5px 8px;
+    background: #222; cursor: pointer; user-select: none; gap: 6px;
+  }
+  .std-pack-header:hover { background: #2a2a2a; }
+  .std-pack-arrow { font-size: 11px; color: #555; transition: transform 0.15s; flex-shrink: 0; }
+  .std-pack.open .std-pack-arrow { transform: rotate(90deg); }
+  .std-pack-name { flex: 1; font-size: 11px; font-weight: 600; color: #ccc;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .std-pack-actions { display: flex; gap: 4px; flex-shrink: 0; align-items: center; }
+  .std-pack-actions button {
+    background: none; border: none; color: #555; cursor: pointer;
+    font-size: 13px; padding: 0 2px; line-height: 1;
+  }
+  .std-pack-apply-btn {
+    color: #80cbc4 !important;
+    border: 1px solid #80cbc4 !important;
+    border-radius: 3px !important;
+    padding: 1px 5px !important;
+    font-size: 11px !important;
+    font-family: inherit !important;
+  }
+  .std-pack-apply-btn:hover:not(:disabled) { background: rgba(128,203,196,0.15) !important; }
+  .std-pack-apply-btn:disabled { color: #333 !important; border-color: #2a2a2a !important; cursor: default !important; }
+  .std-pack-rename-btn:hover { color: #ffa726 !important; }
+  .std-pack-del-btn:hover { color: #ef5350 !important; }
+  .fav-rename-folder-btn:hover { color: #ffa726 !important; }
+
+  /* 인라인 이름 수정 인풋 */
+  .inline-rename-input {
+    flex: 1; min-width: 0;
+    background: #2a2a2a;
+    border: 1px solid #80cbc4;
+    border-radius: 3px;
+    color: #e0e0e0;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 1px 5px;
+    font-family: inherit;
+    outline: none;
+  }
+  .inline-rename-input:focus { border-color: #80cbc4; box-shadow: 0 0 0 2px rgba(128,203,196,0.15); }
+  .std-pack-items { display: none; padding: 3px 0; background: #1a1a1a; }
+  .std-pack.open .std-pack-items { display: block; }
+  .std-pack-add-url-btn {
+    background: none; border: 1px solid #444; border-radius: 4px;
+    color: #aaa; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    font-family: inherit; transition: border-color 0.15s, color 0.15s;
+  }
+  .std-pack-add-url-btn:hover { border-color: #80cbc4; color: #80cbc4; }
+  .std-upload-btn:disabled { color: #444; border-color: #333; cursor: default; }
+  .std-save-pack-btn {
+    background: rgba(128,203,196,0.1); border: 1px solid #80cbc4; border-radius: 4px;
+    color: #80cbc4; font-size: 10px; padding: 2px 7px; cursor: pointer;
+    font-family: inherit; transition: background 0.15s;
+  }
+  .std-save-pack-btn:hover:not(:disabled) { background: rgba(128,203,196,0.2); }
+  .std-save-pack-btn:disabled { color: #444; border-color: #333; cursor: default; }
+
+  /* ── 핀업 버튼 ── */
+  .pin-btn {
+    background: none; border: none; color: #444; font-size: 13px;
+    cursor: pointer; padding: 0 2px; line-height: 1;
+    transition: color 0.15s; flex-shrink: 0;
+  }
+  .pin-btn:hover { color: #80cbc4; }
+  .pin-btn.pinned { color: #80cbc4; cursor: default; }
+
+  /* ── 스탠딩 팩 아이템 드래그 ── */
+  .std-lib-item.dragging { opacity: 0.4; }
+  .std-lib-item.drag-over { border-top: 2px solid #80cbc4; }
+  .std-lib-item.drag-over-bottom { border-bottom: 2px solid #80cbc4; }
+
+  /* ── 스탠딩 팩 순서 드래그 ── */
+  .std-pack[draggable="true"] { cursor: grab; }
+  .std-pack.pack-dragging { opacity: 0.4; }
+  .std-pack.pack-drag-over-top { border-top: 2px solid #80cbc4; }
+  .std-pack.pack-drag-over-bottom { border-bottom: 2px solid #80cbc4; }
+
+  /* 업로드 버튼 힌트 텍스트 */
+  .std-upload-hint { font-size: 9px; opacity: 0.6; }
+
+  /* ── 이미지 호버 미리보기 ── */
+  #imgPreview {
+    display: none;
+    position: fixed;
+    z-index: 9999;
+    background: #111;
+    border: 1px solid #444;
+    border-radius: 6px;
+    padding: 4px;
+    pointer-events: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,.7);
+  }
+  #imgPreview img {
+    display: block;
+    max-width: 160px;
+    max-height: 160px;
+    object-fit: contain;
+    border-radius: 3px;
+  }
+
+  /* ── 실행취소 토스트 ── */
+  #undo-toast {
+    position: fixed; bottom: 10px; left: 50%; transform: translateX(-50%);
+    background: #1a1a1a; border: 1px solid #444; color: #e0e0e0;
+    padding: 7px 10px; border-radius: 5px; font-size: 11px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.6); z-index: 9999;
+    display: flex; align-items: center; gap: 10px; white-space: nowrap;
+    animation: toast-in .15s ease;
+  }
+  #undo-toast button {
+    background: none; border: 1px solid #666; border-radius: 3px;
+    color: #80cbc4; font-size: 10px; padding: 2px 7px; cursor: pointer;
+  }
+  #undo-toast button:hover { border-color: #80cbc4; }
+
+  /* ── 파일 드래그앤드롭 업로드 ── */
+  .std-upload-btn.drag-over { background: rgba(128,203,196,0.15); border-color: #80cbc4; }
 
 </style>
 </head>
@@ -628,13 +854,15 @@
 <div class="header">
   <div class="header-icon">C</div>
   <span class="header-title">Ccfolia Helper</span>
-  <span class="header-sub">v1.3.0</span>
+  <span class="header-sub">v2.0.0</span>
+  <button id="pinBtn" class="pin-btn" title="새 창으로 고정 (팝업 유지)">📌</button>
 </div>
 
 <div class="tabs">
   <div class="tab active" data-tab="marker">Marker</div>
   <div class="tab" data-tab="screen">Screen</div>
   <div class="tab" data-tab="fav">★ 즐겨찾기</div>
+  <div class="tab" data-tab="standing">✦ 스탠딩</div>
   <div class="tab" data-tab="info">ℹ 정보</div>
 </div>
 
@@ -694,10 +922,10 @@
   <div class="section-title" style="margin-top: 16px;">JSON 생성기</div>
   
   <div class="generator-header" id="markerGeneratorHeader">
-    <span>▶ 생성기 펼치기</span>
+    <span>▼ 생성기 접기</span>
   </div>
 
-  <div class="json-generator collapsed" id="markerGenerator">
+  <div class="json-generator" id="markerGenerator">
     <div class="input-row">
       <div class="input-group small">
         <label>Width</label>
@@ -835,10 +1063,10 @@
   <div class="section-title" style="margin-top: 16px;">JSON 생성기</div>
   
   <div class="generator-header" id="screenGeneratorHeader">
-    <span>▶ 생성기 펼치기</span>
+    <span>▼ 생성기 접기</span>
   </div>
 
-  <div class="json-generator collapsed" id="screenGenerator">
+  <div class="json-generator" id="screenGenerator">
     <div class="input-row">
       <div class="input-group small">
         <label>Width</label>
@@ -973,9 +1201,58 @@
   <!-- 내보내기/불러오기 -->
   <div class="io-section">
     <span class="io-section-label">전체</span>
-    <button class="io-btn" id="exportAllBtn">⬆ 전체 내보내기</button>
-    <button class="io-btn" id="importAllBtn">⬇ 전체 불러오기</button>
+    <button class="io-btn" id="exportAllBtn" title="내보내기">⤴ 전체 내보내기</button>
+    <button class="io-btn" id="importAllBtn" title="불러오기">⤵ 전체 불러오기</button>
     <input type="file" id="importAllInput" accept=".json" style="display:none">
+  </div>
+
+</div>
+
+<!-- 스탠딩 탭 -->
+<div class="tab-content" id="tab-standing">
+
+  <!-- 현재 캐릭터 표시 -->
+  <div class="std-char-bar">
+    <span class="std-char-name" id="stdCharName">캐릭터 편집 화면을 열어 주세요</span>
+    <button class="std-refresh-btn" id="stdRefreshBtn" title="재감지">↻</button>
+  </div>
+
+  <!-- 파일 업로드 (항상 표시, 캐릭터 미감지 시 비활성화) -->
+  <div class="std-section" id="stdUploadSection">
+    <button class="std-upload-btn" id="stdUploadBtn" disabled>📁 파일에서 추가<span class="std-upload-hint"> · 드래그 앤 드롭 가능</span></button>
+    <input type="file" id="stdFileInput" accept="image/*" multiple style="display:none">
+  </div>
+
+  <!-- 스탠딩 팩 -->
+  <div class="std-section">
+    <div class="std-lib-header">
+      <span class="std-lib-title">스탠딩 팩</span>
+      <div style="display:flex;gap:4px">
+        <button class="std-save-pack-btn" id="stdSavePackBtn" disabled title="현재 캐릭터의 스탠딩을 팩으로 저장">현재 스탠딩 저장</button>
+        <button class="std-pack-add-url-btn" id="stdNewPackBtn">+ 팩 만들기</button>
+      </div>
+    </div>
+
+    <input type="file" id="stdPackFileInput" accept="image/*" multiple style="display:none">
+
+    <div id="stdNewPackForm" style="display:none;background:#252525;border-radius:6px;padding:8px;margin-bottom:8px">
+      <input type="text" id="stdNewPackNameInput" placeholder="팩 이름..." style="width:100%;box-sizing:border-box;background:#1a1a1a;border:1px solid #333;border-radius:4px;color:#e0e0e0;font-size:11px;padding:5px 7px;margin-bottom:6px;font-family:inherit">
+      <div style="display:flex;gap:5px;justify-content:flex-end">
+        <button id="stdNewPackCancelBtn" style="background:none;border:1px solid #444;border-radius:4px;color:#aaa;font-size:11px;padding:3px 10px;cursor:pointer;font-family:inherit">취소</button>
+        <button id="stdNewPackConfirmBtn" class="primary" style="background:#1b5e20;border:1px solid #1b5e20;border-radius:4px;color:#fff;font-size:11px;padding:3px 10px;cursor:pointer;font-family:inherit;font-weight:700">만들기</button>
+      </div>
+    </div>
+
+    <div id="stdPackList">
+      <div class="std-lib-empty">저장된 팩이 없습니다.</div>
+    </div>
+
+    <div class="io-section" style="margin-top:8px">
+      <span class="io-section-label">팩</span>
+      <button class="io-btn" id="packExportBtn" title="팩 내보내기">⤴ 내보내기</button>
+      <button class="io-btn" id="packImportBtn" title="팩 불러오기">⤵ 불러오기</button>
+      <input type="file" id="packImportInput" accept=".json" style="display:none">
+    </div>
   </div>
 
 </div>
@@ -985,7 +1262,7 @@
   <div class="info-hero">
     <div class="info-hero-icon">C</div>
     <div class="info-hero-name">Ccfolia Helper</div>
-    <div class="info-hero-ver">v1.3.0</div>
+    <div class="info-hero-ver">v2.0.0</div>
     <div class="info-hero-desc">ccfolia.com 마커 · 스크린 패널 생성 도우미</div>
   </div>
   <div class="info-row">
@@ -1009,5 +1286,6 @@
 
 <script src="popup.js"></script>
 
+<div id="imgPreview"><img></div>
 </body>
 </html>

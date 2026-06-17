@@ -1,15 +1,21 @@
 {
   "manifest_version": 3,
   "name": "Ccfolia Helper",
-  "version": "1.3.0",
+  "version": "2.0.0",
   "description": "Ccfolia 마커/스크린 패널 생성 도우미",
   "permissions": [
     "clipboardRead",
     "storage",
-    "tabs"
+    "tabs",
+    "sidePanel"
   ],
+  "side_panel": {
+    "default_path": "popup.html"
+  },
   "host_permissions": [
-    "https://ccfolia.com/rooms/*"
+    "https://ccfolia.com/rooms/*",
+    "https://firestore.googleapis.com/*",
+    "https://asia-northeast1-ccfolia-160aa.cloudfunctions.net/*"
   ],
   "content_scripts": [
     {

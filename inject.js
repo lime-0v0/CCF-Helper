@@ -7,6 +7,7 @@
   "use strict";
 
   let authToken = null;
+  let _lastEditedChar = null; // XHR 인터셉터로 캐시한 최근 편집 캐릭터
 
   // ── 1. localStorage에서 Firebase 토큰 취득 (v8) ───────────────────────
   function tryLocalStorage() {
@@ -103,6 +104,77 @@
       authToken = value.slice(7);
     }
     return _xhrSetHeader.apply(this, arguments);
+  };
+
+  // ── XHR send 인터셉터: Firestore 채널 write에서 편집 중인 캐릭터 캐시 ──
+  const _xhrSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function (body) {
+    if (this.__helperUrl?.includes("firestore.googleapis.com") && body) {
+      try {
+        const params = new URLSearchParams(typeof body === "string" ? body : "");
+        const raw = params.get("req0__data__");
+        if (raw) {
+          const data = JSON.parse(raw);
+          for (const write of data.writes ?? []) {
+            const m = write.update?.name?.match(/\/characters\/([^/]+)$/);
+            if (m) {
+              const fields = write.update.fields ?? {};
+              _lastEditedChar = {
+                id: m[1],
+                name: fields.name?.stringValue ?? "",
+                faces: (fields.faces?.arrayValue?.values ?? []).map(v => {
+                  const f = v.mapValue?.fields ?? {};
+                  return {
+                    name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                    imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
+                  };
+                }),
+              };
+              console.log("[CCFHelper:xhr] char cached:", _lastEditedChar.id, _lastEditedChar.name);
+            }
+          }
+          // addTarget (Edit 다이얼로그 열릴 때 Firestore Listen 요청) → 캐릭터 ID 즉시 포착
+          for (const docPath of data.addTarget?.documents?.documents ?? []) {
+            const m = docPath.match(/\/characters\/([^/]+)$/);
+            if (m) {
+              const charId = m[1];
+              console.log("[CCFHelper:xhr] Listen target for char:", charId);
+              if (_lastEditedChar?.id !== charId) {
+                _lastEditedChar = { id: charId, name: "", faces: [] };
+                // 즉시 알림 (이름은 아직 없음)
+                window.postMessage({ __ccfoliaHelper: true, action: "CHAR_DETECTED", charId, charName: "" }, "*");
+                const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+                if (roomId && authToken) {
+                  const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+                  _fetch(charUrl, { headers: { Authorization: `Bearer ${authToken}` } })
+                    .then(r => r.ok ? r.json() : null)
+                    .then(doc => {
+                      if (doc?.fields && _lastEditedChar?.id === charId) {
+                        _lastEditedChar = {
+                          id: charId,
+                          name: doc.fields.name?.stringValue ?? "",
+                          faces: (doc.fields.faces?.arrayValue?.values ?? []).map(v => {
+                            const f = v.mapValue?.fields ?? {};
+                            return {
+                              name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                              imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
+                            };
+                          }),
+                        };
+                        console.log("[CCFHelper:xhr] Listen char data ready:", charId, _lastEditedChar.name);
+                        // 이름 확보 후 재알림
+                        window.postMessage({ __ccfoliaHelper: true, action: "CHAR_DETECTED", charId, charName: _lastEditedChar.name }, "*");
+                      }
+                    })
+                    .catch(() => {});
+                }
+              }
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return _xhrSend.apply(this, arguments);
   };
 
   // 초기 토큰 취득 시도 (페이지 로드 시 이미 인증 상태인 경우)
@@ -452,6 +524,240 @@
     if (event.source !== window) return;
     if (!event.data?.__ccfoliaHelper) return;
 
+    // ── SCAN_DIALOG_FOR_CHAR: 캐릭터 편집 다이얼로그의 fiber에서 캐릭터 데이터 탐색 ──
+    if (event.data.action === "SCAN_DIALOG_FOR_CHAR") {
+      const { requestId } = event.data;
+      let charData = null;
+
+      // "Standing Image" 텍스트를 포함한 다이얼로그 우선, 없으면 전체 다이얼로그 스캔
+      const dialogs = [...document.querySelectorAll("[role='dialog']")];
+      const charDialogs = dialogs.filter(d =>
+        d.textContent.includes("Standing") || d.textContent.includes("Difference") || d.textContent.includes("Character editing")
+      );
+      const targets = [
+        ...charDialogs,
+        ...dialogs.filter(d => !charDialogs.includes(d)),
+      ];
+
+      // 다이얼로그가 없으면 편집창이 닫혀 있으므로 캐릭터 없음 반환
+      if (targets.length === 0) {
+        window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData: null }, "*");
+        return;
+      }
+
+      // ── addTarget 인터셉터 캐시 확인 ──
+      // _dialogNameHint가 MuiTypography span을 우선 읽으므로 이제 신뢰할 수 있음
+      // → 캐시 이름과 다이얼로그 표시 이름이 일치하면 즉시 반환, 불일치면 캐시 무효화
+      if (_lastEditedChar?.id) {
+        if (_lastEditedChar.name) {
+          const primaryDialogForCheck = targets[0] ?? null;
+          const nameHint = _dialogNameHint(primaryDialogForCheck);
+          if (!nameHint || _lastEditedChar.name === nameHint) {
+            // 다이얼로그 이름이 없거나 캐시와 일치 → 캐시 신뢰
+            charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
+            console.log("[CCFHelper:dialog-scan] cache hit:", charData);
+            window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+            return;
+          }
+          // 다이얼로그에 다른 캐릭터 이름이 표시됨 → 캐시 무효화 후 재탐색
+          console.log("[CCFHelper:dialog-scan] cache mismatch:", _lastEditedChar.name, "≠", nameHint, "— invalidating");
+          _lastEditedChar = null;
+        } else {
+          // id는 있지만 name이 아직 없음 (async fetch 진행 중) → 직접 동기 fetch
+          const charId = _lastEditedChar.id;
+          const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+          if (roomId && authToken) {
+            try {
+              const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+              const doc = await _fetch(charUrl, { headers: { Authorization: `Bearer ${authToken}` } }).then(r => r.ok ? r.json() : null);
+              if (doc?.fields) {
+                const name = doc.fields.name?.stringValue ?? "";
+                const faces = (doc.fields.faces?.arrayValue?.values ?? []).map(v => {
+                  const f = v.mapValue?.fields ?? {};
+                  return {
+                    name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                    imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+                  };
+                });
+                _lastEditedChar = { id: charId, name, faces };
+                if (name) {
+                  charData = { id: charId, name };
+                  console.log("[CCFHelper:dialog-scan] cache id-fetch:", charData);
+                  window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+                  return;
+                }
+              }
+            } catch (_) {}
+          }
+        }
+      }
+
+      // Redux store 미캐시 상태라면 document.body fiber에서도 탐색
+      if (!_cachedReduxStore && document.body) {
+        const bkey = Object.keys(document.body).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+        if (bkey) {
+          let f = document.body[bkey];
+          for (let i = 0; f && i < 200; i++, f = f.return) {
+            const val = f.memoizedProps?.value;
+            if (val?.store?.getState) { _cachedReduxStore = val.store; console.log("[CCFHelper:dialog-scan] body-walk Redux store cached ✓"); break; }
+          }
+        }
+      }
+
+      for (const dialog of targets) {
+        charData = _extractCharFromDialog(dialog);
+        if (charData) break;
+      }
+      const primaryDialog = targets[0] ?? null;
+      const nameHintFallback = _dialogNameHint(primaryDialog);
+      // nameHint는 신뢰도가 낮음(DOM 순서 의존) → 불일치여도 바로 버리지 않고 Redux로 재확인
+      if (charData && nameHintFallback && charData.name !== nameHintFallback) {
+        console.log("[CCFHelper:dialog-scan] fiber hint mismatch:", charData.name, "≠", nameHintFallback, "— trying Redux");
+        // Redux에서 해당 id 캐릭터가 실제로 존재하는지 확인
+        const reduxResult = _findCharInRedux(primaryDialog);
+        if (reduxResult && reduxResult.id !== charData.id) {
+          console.log("[CCFHelper:dialog-scan] discarding fiber result, using Redux:", reduxResult);
+          charData = reduxResult;
+        }
+        // Redux 결과도 없으면 fiber 결과 유지 (nameHint가 틀렸을 가능성이 더 높음)
+      }
+      // fallback 1: Redux store 직접 탐색 (패턴 A+B)
+      if (!charData) charData = _findCharInRedux(primaryDialog);
+      // fallback 2: fiber.key / characterId prop 탐색
+      if (!charData && primaryDialog) {
+        const fkey2 = Object.keys(primaryDialog).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+        if (fkey2) {
+          const fkResult = _findCharByFiberKey(primaryDialog[fkey2]);
+          // nameHint 불일치여도 단독 결과면 신뢰 (nameHint가 엉뚱한 값일 수 있음)
+          if (fkResult) charData = fkResult;
+        }
+      }
+      // fallback 3: Firestore REST API — 캐릭터 목록 조회 후 이름 매칭
+      if (!charData) {
+        const nameHint = _dialogNameHint(primaryDialog);
+        const roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+        // "@"로 시작하는 힌트는 표정 이름이므로 Firestore 검색에 사용하지 않음
+        if (nameHint && !nameHint.startsWith("@") && roomId && authToken) {
+          try {
+            const listUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters?pageSize=300`;
+            const resp = await _fetch(listUrl, { headers: { Authorization: `Bearer ${authToken}` } });
+            if (resp.ok) {
+              const data = await resp.json();
+              const docs = data.documents ?? [];
+              // 정확한 이름 일치 우선, 그 다음 부분 문자열 (단, 후보가 1개일 때만 부분 매칭)
+              const matched =
+                docs.find(doc => (doc.fields?.name?.stringValue ?? "") === nameHint) ??
+                (docs.filter(doc => {
+                  const n = doc.fields?.name?.stringValue ?? "";
+                  return n.includes(nameHint) || nameHint.includes(n);
+                }).length === 1
+                  ? docs.find(doc => {
+                      const n = doc.fields?.name?.stringValue ?? "";
+                      return n.includes(nameHint) || nameHint.includes(n);
+                    })
+                  : null);
+              if (matched) {
+                const id = matched.name.split("/").pop();
+                const name = matched.fields?.name?.stringValue ?? "";
+                charData = { id, name };
+                console.log("[CCFHelper:dialog-scan] Firestore fallback:", charData);
+              }
+            }
+          } catch (e) { console.warn("[CCFHelper:dialog-scan] Firestore fallback error:", e); }
+        }
+      }
+      // 탐색 결과로 캐시 갱신 (다음 요청에서 빠르게 반환)
+      if (charData?.id) {
+        const prevFaces = (_lastEditedChar?.id === charData.id) ? (_lastEditedChar.faces ?? []) : [];
+        _lastEditedChar = { id: charData.id, name: charData.name, faces: prevFaces };
+        // faces가 없으면 (addTarget async fetch가 authToken 없어서 스킵됐을 때) 백그라운드 fetch
+        if (!prevFaces.length) {
+          const _roomId = window.location.pathname.match(/\/rooms\/([^/]+)/)?.[1];
+          const _charId = charData.id;
+          if (_roomId && authToken) {
+            const _charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(_roomId)}/characters/${encodeURIComponent(_charId)}`;
+            _fetch(_charUrl, { headers: { Authorization: `Bearer ${authToken}` } })
+              .then(r => r.ok ? r.json() : null)
+              .then(doc => {
+                if (doc?.fields && _lastEditedChar?.id === _charId) {
+                  _lastEditedChar.faces = (doc.fields.faces?.arrayValue?.values ?? []).map(v => {
+                    const f = v.mapValue?.fields ?? {};
+                    return {
+                      name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                      imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+                    };
+                  });
+                  console.log("[CCFHelper:dialog-scan] faces bg-fetch:", _charId, _lastEditedChar.faces.length);
+                }
+              }).catch(() => {});
+          }
+        }
+      }
+      console.log("[CCFHelper:dialog-scan] result:", charData);
+      window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+      return;
+    }
+
+    // ── UPLOAD_STANDING: 스탠딩 이미지 업로드 + Firestore 저장 ──
+    if (event.data.action === "UPLOAD_STANDING") {
+      const { requestId, roomId, charId, files } = event.data;
+      uploadStandingImages(requestId, roomId, charId, files);
+      return;
+    }
+
+    // ── ADD_STANDING_URL: URL로 스탠딩 직접 추가 (업로드 없이) ──
+    if (event.data.action === "ADD_STANDING_URL") {
+      const { requestId, roomId, charId, faceName, imageUrl } = event.data;
+      uploadStandingImages(requestId, roomId, charId, [{ faceName, directUrl: imageUrl }]);
+      return;
+    }
+
+    // ── GET_CHAR_FACES: Firestore에서 캐릭터 faces 배열 읽기 ──
+    if (event.data.action === "GET_CHAR_FACES") {
+      const { requestId, roomId, charId } = event.data;
+      (async () => {
+        try {
+          // 캐시에 faces가 실제로 있을 때만 신뢰
+          // faces=[]는 Firestore에서 읽지 않고 초기화된 빈 배열일 수 있으므로 재확인
+          if (_lastEditedChar?.id === charId && _lastEditedChar.faces?.length > 0) {
+            console.log("[CCFHelper:faces] cache hit:", charId, _lastEditedChar.faces.length, "faces");
+            window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces: _lastEditedChar.faces }, "*");
+            return;
+          }
+          await new Promise((resolve) => {
+            try {
+              const user = window.firebase?.auth?.()?.currentUser;
+              if (user?.getIdToken) user.getIdToken().then((t) => { authToken = t; resolve(); }).catch(resolve);
+              else resolve();
+            } catch (_) { resolve(); }
+          });
+          if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
+          const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+          const resp = await _fetch(charUrl, { headers: { "Authorization": `Bearer ${authToken}` } });
+          if (!resp.ok) throw new Error(`Firestore ${resp.status}`);
+          const doc = await resp.json();
+          const faces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => {
+            const f = v.mapValue?.fields ?? {};
+            return {
+              name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+              imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
+            };
+          });
+          window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces }, "*");
+        } catch (err) {
+          window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: false, error: err.message }, "*");
+        }
+      })();
+      return;
+    }
+
+    // ── UPLOAD_FILES_TO_CDN: CDN 업로드만 (Firestore 패치 없음) ──
+    if (event.data.action === "UPLOAD_FILES_TO_CDN") {
+      const { requestId, files } = event.data;
+      uploadFilesToCdn(requestId, files);
+      return;
+    }
+
     // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
     if (event.data.action === "GET_PANEL_DATA") {
       const { requestId } = event.data;
@@ -494,6 +800,376 @@
       window.postMessage({ __ccfoliaHelper: true, action: "CREATE_RESULT", requestId, success: false, error: e.message }, "*");
     }
   });
+
+  // ── 캐릭터 편집 다이얼로그 fiber 스캔 ──────────────────────────────────
+
+  // 자식 방향(child/sibling) 반복 탐색 — 캐릭터 데이터는 다이얼로그 하위 컴포넌트에 위치
+  function _walkFiberDown(startFiber) {
+    let first = startFiber.child;
+    if (!first) return null;
+    const stack = [first];
+    const visited = new Set();
+    let count = 0;
+    while (stack.length && count < 2000) {
+      const fiber = stack.pop();
+      if (!fiber || visited.has(fiber)) continue;
+      visited.add(fiber);
+      count++;
+      if (!_cachedReduxStore) {
+        const val = fiber.memoizedProps?.value;
+        if (val?.store?.getState) { _cachedReduxStore = val.store; }
+      }
+      const r = _matchCharProps(fiber.memoizedProps);
+      if (r) return r;
+      let hs = fiber.memoizedState; let hi = 0;
+      while (hs && hi < 8) {
+        const sv = hs.memoizedState;
+        if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+          const r2 = _matchCharProps(sv);
+          if (r2) return r2;
+        }
+        hs = hs.next; hi++;
+      }
+      if (fiber.sibling) stack.push(fiber.sibling);
+      if (fiber.child)   stack.push(fiber.child);
+    }
+    return null;
+  }
+
+  function _extractCharFromDialog(el) {
+    const fkey = Object.keys(el).find(k => k.startsWith("__reactFiber") || k.startsWith("__reactInternalInstance"));
+    if (!fkey) return null;
+    const startFiber = el[fkey];
+    // 상위 방향 탐색 — step 수를 500으로 늘려 Redux Provider까지 확실히 도달
+    let fiber = startFiber;
+    for (let i = 0; fiber && i < 500; i++, fiber = fiber.return) {
+      if (!_cachedReduxStore) {
+        const val = fiber.memoizedProps?.value;
+        if (val?.store?.getState) { _cachedReduxStore = val.store; console.log("[CCFHelper:dialog-scan] Redux store cached ✓"); }
+      }
+      const r = _matchCharProps(fiber.memoizedProps);
+      if (r) return r;
+      let hs = fiber.memoizedState; let hi = 0;
+      while (hs && hi < 30) {
+        const sv = hs.memoizedState;
+        if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+          const r2 = _matchCharProps(sv);
+          if (r2) return r2;
+        }
+        hs = hs.next; hi++;
+      }
+    }
+    // 하위 방향 탐색 (캐릭터 편집 컴포넌트는 dialog 엘리먼트의 하위에 존재)
+    return _walkFiberDown(startFiber);
+  }
+
+  // dialog 내 캐릭터 이름 힌트 추출
+  // 1순위: 다이얼로그 헤더의 MuiTypography-caption + MuiTypography-noWrap span
+  //        (ccfolia가 캐릭터 이름을 표시하는 전용 엘리먼트, input 스캔보다 신뢰도 높음)
+  // 2순위: 캐릭터 아바타 img 근처의 noWrap span
+  // 3순위: 첫 번째 text input 값 ("@" 표정 이름 제외)
+  function _dialogNameHint(dialogEl) {
+    if (!dialogEl) return "";
+
+    // 1순위: MuiTypography-caption + MuiTypography-noWrap span
+    for (const span of dialogEl.querySelectorAll("span.MuiTypography-caption.MuiTypography-noWrap")) {
+      const v = span.textContent?.trim() ?? "";
+      if (v && !v.startsWith("@")) return v;
+    }
+
+    // 2순위: 아바타 img (draggable="false") 근처의 noWrap span
+    const avatarImg = dialogEl.querySelector('img[draggable="false"]');
+    if (avatarImg) {
+      const container = avatarImg.parentElement?.parentElement ?? avatarImg.parentElement;
+      if (container) {
+        for (const span of container.querySelectorAll("span.MuiTypography-noWrap")) {
+          const v = span.textContent?.trim() ?? "";
+          if (v && !v.startsWith("@")) return v;
+        }
+      }
+    }
+
+    // 3순위: input 스캔 ("@" 표정 이름 제외)
+    for (const inp of dialogEl.querySelectorAll(
+      'input:not([type="hidden"]):not([type="number"]):not([type="checkbox"]):not([type="radio"]):not([type="range"])'
+    )) {
+      const v = inp.value?.trim() ?? "";
+      if (!v || v.startsWith("@")) continue;
+      return v;
+    }
+    return "";
+  }
+
+  // Redux store에서 캐릭터 탐색
+  // 패턴 A: { id, faces } 객체
+  // 패턴 B: { [charId]: { name, faces } } — 키=ID, 값=데이터
+  function _findCharInRedux(dialogEl) {
+    if (!_cachedReduxStore) return null;
+    try {
+      const state = _cachedReduxStore.getState();
+      const nameHint = _dialogNameHint(dialogEl);
+      const chars = [];
+      const seen = new Set();
+      function collect(obj, depth, parentKey) {
+        if (depth > 8 || !obj || typeof obj !== "object" || seen.has(obj)) return;
+        seen.add(obj);
+        if (Array.isArray(obj)) {
+          for (let i = 0; i < obj.length; i++) collect(obj[i], depth + 1, String(i));
+          return;
+        }
+        // 패턴 A: {id (>=15), faces}
+        const id = obj.id;
+        if (typeof id === "string" && id.length >= 15 && Array.isArray(obj.faces)) {
+          chars.push({ id, name: String(obj.name ?? "").trim() }); return;
+        }
+        // 패턴 B: 부모 키가 ID(>=15자), 이 객체는 캐릭터 데이터 — faces 없어도 initiative/x/y/status로 판단
+        if (typeof obj.name === "string" && obj.name.trim() &&
+            typeof parentKey === "string" && parentKey.length >= 15 &&
+            (Array.isArray(obj.faces) || typeof obj.initiative === "number" ||
+             typeof obj.x === "number" || typeof obj.y === "number" || "status" in obj)) {
+          chars.push({ id: parentKey, name: obj.name.trim() }); return;
+        }
+        for (const [k, v] of Object.entries(obj)) {
+          if (v && typeof v === "object") collect(v, depth + 1, k);
+        }
+      }
+      collect(state, 0, null);
+      console.log("[CCFHelper:dialog-scan] Redux chars:", chars.length, "nameHint:", nameHint);
+      if (!chars.length) return null;
+      if (chars.length === 1) return chars[0];
+      if (nameHint) {
+        const exact = chars.find(c => c.name === nameHint);
+        if (exact) return exact;
+        const partials = chars.filter(c => c.name.includes(nameHint) || nameHint.includes(c.name));
+        if (partials.length === 1) return partials[0];
+      }
+      return null; // 모호한 경우 Firestore REST fallback으로 위임
+    } catch (e) {
+      console.warn("[CCFHelper:dialog-scan] Redux char lookup error:", e);
+      return null;
+    }
+  }
+
+  // Fiber에서 characterId prop + 캐릭터 데이터 hook state 조합 탐색
+  function _findCharByFiberKey(startFiber) {
+    let fiber = startFiber;
+    for (let i = 0; fiber && i < 500; i++, fiber = fiber.return) {
+      // fiber.key가 긴 문자열 → 캐릭터 ID로 사용 시도
+      const fkey = fiber.key;
+      if (typeof fkey === "string" && fkey.length >= 15) {
+        // 같은 fiber의 state에 이름/faces가 있는지 확인
+        let hs = fiber.memoizedState; let hi = 0;
+        while (hs && hi < 30) {
+          const sv = hs.memoizedState;
+          if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+            const name = sv.name ?? sv.characterName ?? sv.charaName ?? "";
+            if (typeof name === "string" && name.trim() &&
+                (Array.isArray(sv.faces) || typeof sv.initiative === "number")) {
+              return { id: fkey, name: name.trim() };
+            }
+          }
+          hs = hs.next; hi++;
+        }
+      }
+      // memoizedProps에 characterId/charaId 계열 prop이 있고, state에 faces/initiative가 있으면 매칭
+      const mp = fiber.memoizedProps;
+      if (mp && typeof mp === "object") {
+        for (const k of ["characterId", "charaId", "pieceId", "tokenId", "charId"]) {
+          const pid = mp[k];
+          if (typeof pid === "string" && pid.length >= 15) {
+            let hs = fiber.memoizedState; let hi = 0;
+            while (hs && hi < 20) {
+              const sv = hs.memoizedState;
+              if (sv && typeof sv === "object" && !Array.isArray(sv)) {
+                const name = sv.name ?? sv.characterName ?? sv.charaName ?? "";
+                if (typeof name === "string" && name.trim() &&
+                    (Array.isArray(sv.faces) || typeof sv.initiative === "number")) {
+                  return { id: pid, name: name.trim() };
+                }
+              }
+              hs = hs.next; hi++;
+            }
+          }
+        }
+      }
+    }
+    return null;
+  }
+
+  function _matchCharProps(props) {
+    if (!props || typeof props !== "object" || Array.isArray(props)) return null;
+    const id = props.id;
+    if (typeof id === "string" && id.length >= 15) {
+      const name = props.name ?? props.text ?? props.charaName ?? props.characterName ?? "";
+      // faces 배열이 있으면 가장 확실한 캐릭터 편집 다이얼로그 데이터
+      if (Array.isArray(props.faces) && typeof name === "string") {
+        return { id, name: name.trim() };
+      }
+      if (typeof name === "string" && name.trim() &&
+          (typeof props.x === "number" || typeof props.y === "number" ||
+           typeof props.gridX === "number" ||
+           "faceIndex" in props || "status" in props || "initiative" in props ||
+           "charaId" in props || "statusBubbles" in props)) {
+        return { id, name: name.trim() };
+      }
+    }
+    for (const k of ["character", "piece", "data", "value", "current"]) {
+      const v = props[k];
+      if (v && typeof v === "object" && !Array.isArray(v)) {
+        const r = _matchCharProps(v);
+        if (r) return r;
+      }
+    }
+    return null;
+  }
+
+  // ── userId 취득 (localStorage → JWT fallback) ────────────────────────
+  function getUserId() {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const key = localStorage.key(i);
+        if (!key?.startsWith("firebase:authUser:")) continue;
+        const d = JSON.parse(localStorage.getItem(key) ?? "null");
+        if (d?.uid) return d.uid;
+      }
+    } catch (_) {}
+    if (authToken) {
+      try {
+        const b64 = authToken.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+        const payload = JSON.parse(atob(b64));
+        return payload.user_id ?? payload.sub ?? null;
+      } catch (_) {}
+    }
+    return null;
+  }
+
+  // ── 스탠딩 이미지 파일 → ccfolia CDN 업로드 ──────────────────────────
+  async function uploadFileToStorage(arrayBuffer, mimeType) {
+    const userId = getUserId();
+    if (!userId) throw new Error("USER_ID_NOT_FOUND");
+    const hashBuf = await crypto.subtle.digest("SHA-256", arrayBuffer);
+    const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+    const filePath = `users/${userId}/files/${hashHex}`;
+    const blob = new Blob([arrayBuffer], { type: mimeType });
+    const form = new FormData();
+    form.append("file", blob);
+    form.append("filePath", filePath);
+    const resp = await _fetch("https://asia-northeast1-ccfolia-160aa.cloudfunctions.net/uploadFileV2", {
+      method: "POST",
+      headers: { "Authorization": `Bearer ${authToken}` },
+      body: form,
+    });
+    if (!resp.ok) throw new Error(`Upload ${resp.status}: ${await resp.text()}`);
+    const data = await resp.json();
+    console.log("[CCFHelper:upload] raw CDN response:", JSON.stringify(data));
+    // CDN이 url 필드를 직접 반환하는 경우
+    if (typeof data.url === "string") return data.url;
+    return `https://storage.ccfolia-cdn.net/${data.name}?t=${Math.floor(Number(data.generation) / 1000)}`;
+  }
+
+  // ── CDN 전용 업로드 (Firestore 패치 없음) ────────────────────────────
+  async function uploadFilesToCdn(requestId, files) {
+    try {
+      await new Promise((resolve) => {
+        try {
+          const user = window.firebase?.auth?.()?.currentUser;
+          if (user?.getIdToken) user.getIdToken().then((t) => { authToken = t; resolve(); }).catch(resolve);
+          else resolve();
+        } catch (_) { resolve(); }
+      });
+      if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
+      const items = [];
+      for (const f of files) {
+        const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
+        const url = await uploadFileToStorage(rawBuffer, f.type);
+        items.push({ name: f.name, url });
+      }
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN_RESULT", requestId, success: true, items }, "*");
+    } catch (err) {
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN_RESULT", requestId, success: false, error: err.message }, "*");
+    }
+  }
+
+  // ── UPLOAD_STANDING: 파일 업로드 → Firestore faces PATCH ─────────────
+  async function uploadStandingImages(requestId, roomId, charId, files) {
+    try {
+      await new Promise((resolve) => {
+        try {
+          const user = window.firebase?.auth?.()?.currentUser;
+          if (user?.getIdToken) user.getIdToken().then((t) => { authToken = t; resolve(); }).catch(resolve);
+          else resolve();
+        } catch (_) { resolve(); }
+      });
+      if (!authToken) throw new Error("AUTH_TOKEN_NOT_CAPTURED");
+
+      // 파일 순차 업로드 (directUrl이 있으면 업로드 없이 URL 직접 사용)
+      const uploaded = [];
+      for (const f of files) {
+        let cdnUrl;
+        if (f.directUrl) {
+          cdnUrl = f.directUrl;
+          console.log("[CCFHelper:upload] directUrl:", f.faceName, cdnUrl.slice(0, 60));
+        } else {
+          // chrome.tabs.sendMessage은 ArrayBuffer를 {}로 직렬화하므로 Array로 복원
+          const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
+          console.log("[CCFHelper:upload] uploading:", f.faceName, f.type, "bufferLen:", rawBuffer.byteLength);
+          cdnUrl = await uploadFileToStorage(rawBuffer, f.type);
+          console.log("[CCFHelper:upload] CDN URL:", cdnUrl);
+        }
+        uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
+      }
+
+      // 기존 faces 읽기
+      const charUrl = `https://firestore.googleapis.com/v1/projects/ccfolia-160aa/databases/(default)/documents/rooms/${encodeURIComponent(roomId)}/characters/${encodeURIComponent(charId)}`;
+      const getResp = await _fetch(charUrl, { headers: { "Authorization": `Bearer ${authToken}` } });
+      let existingFaces = [];
+      if (getResp.ok) {
+        const doc = await getResp.json();
+        existingFaces = (doc.fields?.faces?.arrayValue?.values ?? []).map(v => {
+          const f = v.mapValue?.fields ?? {};
+          return {
+            name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+            imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+          };
+        });
+      }
+
+      // 병합 + 이름 중복 처리
+      const combined = [...existingFaces];
+      for (const u of uploaded) {
+        let name = u.faceName; let ctr = 1;
+        while (combined.some(f => f.name === name)) name = `${u.faceName} (${ctr++})`;
+        combined.push({ name, imageUrl: u.imageUrl });
+      }
+
+      // PATCH
+      const patchUrl = `${charUrl}?updateMask.fieldPaths=faces&updateMask.fieldPaths=updatedAt`;
+      const body = {
+        fields: {
+          faces: {
+            arrayValue: {
+              values: combined.map(f => ({
+                mapValue: { fields: {
+                  label:   { stringValue: f.name },
+                  iconUrl: { stringValue: f.imageUrl },
+                }},
+              })),
+            },
+          },
+          updatedAt: { integerValue: String(Date.now()) },
+        },
+      };
+      const patchResp = await _fetch(patchUrl, {
+        method: "PATCH",
+        headers: { "Authorization": `Bearer ${authToken}`, "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!patchResp.ok) throw new Error(`Firestore ${patchResp.status}: ${await patchResp.text()}`);
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING_RESULT", requestId, success: true, count: uploaded.length }, "*");
+    } catch (err) {
+      window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING_RESULT", requestId, success: false, error: err.message }, "*");
+    }
+  }
 
   // ── Firestore REST API: 마커 생성 (room 문서의 markers 맵 PATCH) ──────
   async function firestoreUpsertMarker(roomId, d) {
