@@ -826,16 +826,36 @@
     return _walkFiberDown(startFiber);
   }
 
-  // dialog 내 첫 번째 텍스트 input 값 추출 (캐릭터 이름 힌트)
-  // hidden / number / checkbox / radio / range 타입은 셀렉터에서 제외되므로
-  // HP·MP 같은 숫자 입력은 걸리지 않음. "@"로 시작하는 표정 이름만 제외.
-  // 캐릭터 이름 input은 다이얼로그 DOM에서 항상 첫 번째로 나타남.
+  // dialog 내 캐릭터 이름 힌트 추출
+  // 1순위: 다이얼로그 헤더의 MuiTypography-caption + MuiTypography-noWrap span
+  //        (ccfolia가 캐릭터 이름을 표시하는 전용 엘리먼트, input 스캔보다 신뢰도 높음)
+  // 2순위: 캐릭터 아바타 img 근처의 noWrap span
+  // 3순위: 첫 번째 text input 값 ("@" 표정 이름 제외)
   function _dialogNameHint(dialogEl) {
     if (!dialogEl) return "";
-    const inputs = dialogEl.querySelectorAll(
+
+    // 1순위: MuiTypography-caption + MuiTypography-noWrap span
+    for (const span of dialogEl.querySelectorAll("span.MuiTypography-caption.MuiTypography-noWrap")) {
+      const v = span.textContent?.trim() ?? "";
+      if (v && !v.startsWith("@")) return v;
+    }
+
+    // 2순위: 아바타 img (draggable="false") 근처의 noWrap span
+    const avatarImg = dialogEl.querySelector('img[draggable="false"]');
+    if (avatarImg) {
+      const container = avatarImg.parentElement?.parentElement ?? avatarImg.parentElement;
+      if (container) {
+        for (const span of container.querySelectorAll("span.MuiTypography-noWrap")) {
+          const v = span.textContent?.trim() ?? "";
+          if (v && !v.startsWith("@")) return v;
+        }
+      }
+    }
+
+    // 3순위: input 스캔 ("@" 표정 이름 제외)
+    for (const inp of dialogEl.querySelectorAll(
       'input:not([type="hidden"]):not([type="number"]):not([type="checkbox"]):not([type="radio"]):not([type="range"])'
-    );
-    for (const inp of inputs) {
+    )) {
       const v = inp.value?.trim() ?? "";
       if (!v || v.startsWith("@")) continue;
       return v;
