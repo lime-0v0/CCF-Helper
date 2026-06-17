@@ -41,6 +41,23 @@ function showPopupToast(msg) {
   setTimeout(() => t.remove(), 1800);
 }
 
+// ── 실행취소 토스트 ─────────────────────────────
+let _undoToastTimer = null;
+function showUndoToast(msg, onUndo) {
+  const existing = document.getElementById("undo-toast");
+  if (existing) { clearTimeout(_undoToastTimer); existing.remove(); }
+  const t = document.createElement("div");
+  t.id = "undo-toast";
+  t.innerHTML = `<span>${escapeHtml(msg)}</span><button>실행취소</button>`;
+  document.body.appendChild(t);
+  t.querySelector("button").addEventListener("click", () => {
+    clearTimeout(_undoToastTimer);
+    t.remove();
+    onUndo();
+  });
+  _undoToastTimer = setTimeout(() => t.remove(), 3000);
+}
+
 // Marker JSON 생성기
 const markerWidthEl = document.getElementById("markerWidth");
 const markerHeightEl = document.getElementById("markerHeight");
@@ -470,13 +487,23 @@ async function renderFavTree() {
     const delFolderBtn = folderEl.querySelector(".del-folder-btn");
     if (delFolderBtn) {
       delFolderBtn.addEventListener("click", async () => {
-        if (!confirm(`"${folder.name}" 폴더와 항목을 모두 삭제할까요?`)) return;
         const d = await getFavData();
+        const folderIdx = d.folders.findIndex(f => f.id === folder.id);
+        if (folderIdx === -1) return;
+        const removedFolder = d.folders[folderIdx];
+        const removedBookmarks = d.bookmarks.filter(b => b.folderId === folder.id);
         await saveFavData({
           folders: d.folders.filter((f) => f.id !== folder.id),
           bookmarks: d.bookmarks.filter((b) => b.folderId !== folder.id),
         });
         renderFavTree();
+        showUndoToast(`"${removedFolder.name}" 폴더 삭제됨`, async () => {
+          const d2 = await getFavData();
+          d2.folders.splice(folderIdx, 0, removedFolder);
+          d2.bookmarks.push(...removedBookmarks);
+          await saveFavData(d2);
+          renderFavTree();
+        });
       });
     }
 
@@ -537,8 +564,17 @@ async function renderFavTree() {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
         const d = await getFavData();
-        await saveFavData({ ...d, bookmarks: d.bookmarks.filter((b) => b.id !== btn.dataset.id) });
+        const idx = d.bookmarks.findIndex(b => b.id === btn.dataset.id);
+        if (idx === -1) return;
+        const [removed] = d.bookmarks.splice(idx, 1);
+        await saveFavData(d);
         renderFavTree();
+        showUndoToast(`"${removed.name}" 삭제됨`, async () => {
+          const d2 = await getFavData();
+          d2.bookmarks.splice(idx, 0, removed);
+          await saveFavData(d2);
+          renderFavTree();
+        });
       });
     });
 
@@ -890,6 +926,13 @@ document.querySelectorAll(".tab").forEach((tab) => {
   });
 });
 
+// ── 스탠딩 탭 자동 감지 (문서 재방문 시) ──
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && document.querySelector(".tab[data-tab='standing'].active")) {
+    initStandingTab();
+  }
+});
+
 // ── 핀업 (사이드 패널로 고정) ────────────────────────────────────────
 (function initPinBtn() {
   const pinBtn = document.getElementById("pinBtn");
@@ -1114,12 +1157,14 @@ async function renderStandingPacks() {
         ${pack.items.length === 0
           ? '<div class="std-lib-empty">항목 없음</div>'
           : pack.items.map((item, idx) => `
-            <div class="std-lib-item">
+            <div class="std-lib-item" draggable="true" data-pack-id="${escapeHtml(pack.id)}" data-item-idx="${idx}">
               ${item.imageUrl
                 ? `<img class="std-lib-thumb" src="${escapeHtml(item.imageUrl)}" alt="" loading="lazy" onerror="this.style.display='none'">`
                 : `<div class="std-lib-thumb-placeholder"></div>`}
               <span class="std-lib-name" title="${escapeHtml(item.name)}">${escapeHtml(item.name)}</span>
+              <input class="std-item-name-edit inline-rename-input" type="text" value="${escapeHtml(item.name)}" style="display:none">
               <div class="std-lib-actions">
+                <button class="std-item-rename-btn" title="이름 변경">✎</button>
                 <button class="std-apply-btn std-item-apply-btn" data-pack-id="${escapeHtml(pack.id)}" data-idx="${idx}" ${disabledAttr}>▶</button>
                 <button class="std-del-btn std-item-del-btn" data-pack-id="${escapeHtml(pack.id)}" data-idx="${idx}" title="삭제">✕</button>
               </div>
@@ -1188,10 +1233,18 @@ async function renderStandingPacks() {
     // 팩 삭제
     packEl.querySelector(".std-pack-del-btn")?.addEventListener("click", async (e) => {
       e.stopPropagation();
-      if (!confirm(`"${pack.name}" 팩을 삭제할까요?`)) return;
       const ps = await getStandingPacks();
+      const packIdx = ps.findIndex(p => p.id === pack.id);
+      if (packIdx === -1) return;
+      const removedPack = ps[packIdx];
       await saveStandingPacks(ps.filter(p => p.id !== pack.id));
       renderStandingPacks();
+      showUndoToast(`"${removedPack.name}" 팩 삭제됨`, async () => {
+        const ps2 = await getStandingPacks();
+        ps2.splice(packIdx, 0, removedPack);
+        await saveStandingPacks(ps2);
+        renderStandingPacks();
+      });
     });
 
     // 개별 항목 적용
@@ -1220,10 +1273,87 @@ async function renderStandingPacks() {
     packEl.querySelectorAll(".std-item-del-btn").forEach(btn => {
       btn.addEventListener("click", async (e) => {
         e.stopPropagation();
+        const idx = parseInt(btn.dataset.idx);
         const ps = await getStandingPacks();
         const p = ps.find(p => p.id === btn.dataset.packId);
         if (!p) return;
-        p.items.splice(parseInt(btn.dataset.idx), 1);
+        const [removed] = p.items.splice(idx, 1);
+        await saveStandingPacks(ps);
+        renderStandingPacks();
+        showUndoToast(`"${removed.name}" 삭제됨`, async () => {
+          const ps2 = await getStandingPacks();
+          const p2 = ps2.find(p => p.id === btn.dataset.packId);
+          if (!p2) return;
+          p2.items.splice(idx, 0, removed);
+          await saveStandingPacks(ps2);
+          renderStandingPacks();
+        });
+      });
+    });
+
+    // 개별 항목 인라인 이름 변경
+    packEl.querySelectorAll(".std-item-rename-btn").forEach((btn, i) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const itemEl = btn.closest(".std-lib-item");
+        const nameSpan = itemEl.querySelector(".std-lib-name");
+        const nameInput = itemEl.querySelector(".std-item-name-edit");
+        startInlineRename(nameSpan, nameInput, async (newName) => {
+          const ps = await getStandingPacks();
+          const p = ps.find(p => p.id === itemEl.dataset.packId);
+          if (!p) return;
+          const itemIdx = parseInt(itemEl.dataset.itemIdx);
+          if (!p.items[itemIdx]) return;
+          p.items[itemIdx].name = newName;
+          await saveStandingPacks(ps);
+          nameSpan.textContent = newName;
+          nameSpan.title = newName;
+        });
+      });
+    });
+
+    // 개별 항목 드래그앤드롭 순서 변경
+    packEl.querySelectorAll(".std-lib-item").forEach((itemEl) => {
+      itemEl.addEventListener("dragstart", (e) => {
+        e.stopPropagation();
+        e.dataTransfer.setData("stdItemPackId", itemEl.dataset.packId);
+        e.dataTransfer.setData("stdItemIdx", itemEl.dataset.itemIdx);
+        e.dataTransfer.effectAllowed = "move";
+        itemEl.classList.add("dragging");
+      });
+      itemEl.addEventListener("dragend", () => {
+        itemEl.classList.remove("dragging");
+        packEl.querySelectorAll(".std-lib-item").forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+      });
+      itemEl.addEventListener("dragover", (e) => {
+        if (!e.dataTransfer.types.includes("stditempackid")) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        packEl.querySelectorAll(".std-lib-item").forEach(el => el.classList.remove("drag-over", "drag-over-bottom"));
+        const rect = itemEl.getBoundingClientRect();
+        itemEl.classList.add(e.clientY < rect.top + rect.height / 2 ? "drag-over" : "drag-over-bottom");
+      });
+      itemEl.addEventListener("dragleave", (e) => {
+        if (!itemEl.contains(e.relatedTarget))
+          itemEl.classList.remove("drag-over", "drag-over-bottom");
+      });
+      itemEl.addEventListener("drop", async (e) => {
+        itemEl.classList.remove("drag-over", "drag-over-bottom");
+        const fromPackId = e.dataTransfer.getData("stdItemPackId");
+        const fromIdx = parseInt(e.dataTransfer.getData("stdItemIdx"));
+        const toIdx = parseInt(itemEl.dataset.itemIdx);
+        if (!fromPackId || fromPackId !== itemEl.dataset.packId || fromIdx === toIdx) return;
+        e.preventDefault();
+        e.stopPropagation();
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === fromPackId);
+        if (!p) return;
+        const rect = itemEl.getBoundingClientRect();
+        const insertBefore = e.clientY < rect.top + rect.height / 2;
+        const [moved] = p.items.splice(fromIdx, 1);
+        // After removing fromIdx, recalculate toIdx
+        const adjustedTo = fromIdx < toIdx ? toIdx - 1 : toIdx;
+        p.items.splice(insertBefore ? adjustedTo : adjustedTo + 1, 0, moved);
         await saveStandingPacks(ps);
         renderStandingPacks();
       });
@@ -1333,15 +1463,34 @@ document.getElementById("stdSavePackBtn")?.addEventListener("click", async () =>
   showPopupToast(`"${packName.trim()}" 팩 저장됨! (${faces.length}개)`);
 });
 
-// + 팩 만들기
-document.getElementById("stdNewPackBtn")?.addEventListener("click", async () => {
-  const name = prompt("새 팩 이름:", "새 팩");
-  if (!name?.trim()) return;
+// + 팩 만들기 (인라인 폼)
+document.getElementById("stdNewPackBtn")?.addEventListener("click", () => {
+  const form = document.getElementById("stdNewPackForm");
+  form.style.display = "block";
+  const input = document.getElementById("stdNewPackNameInput");
+  input.value = "";
+  input.focus();
+});
+
+document.getElementById("stdNewPackCancelBtn")?.addEventListener("click", () => {
+  document.getElementById("stdNewPackForm").style.display = "none";
+});
+
+async function confirmNewPack() {
+  const name = document.getElementById("stdNewPackNameInput").value.trim();
+  if (!name) return;
+  document.getElementById("stdNewPackForm").style.display = "none";
   const packs = await getStandingPacks();
-  packs.push({ id: genStdPackId(), name: name.trim(), items: [] });
+  packs.push({ id: genStdPackId(), name, items: [] });
   await saveStandingPacks(packs);
   await renderStandingPacks();
-  showPopupToast(`"${name.trim()}" 팩 만들기 완료!`);
+  showPopupToast(`"${name}" 팩 만들기 완료!`);
+}
+
+document.getElementById("stdNewPackConfirmBtn")?.addEventListener("click", confirmNewPack);
+document.getElementById("stdNewPackNameInput")?.addEventListener("keydown", (e) => {
+  if (e.key === "Enter") confirmNewPack();
+  if (e.key === "Escape") document.getElementById("stdNewPackForm").style.display = "none";
 });
 
 // 팩 파일 추가 (CDN 전용, 캐릭터 불필요)
@@ -1377,3 +1526,109 @@ document.getElementById("stdPackFileInput")?.addEventListener("change", async (e
     showPopupToast(`${res.items.length}개 추가됨!`);
   } catch (err) { showPopupToast("오류: " + err.message); }
 });
+
+// ── 파일 드래그앤드롭 업로드 (stdUploadSection) ──
+const stdUploadSection = document.getElementById("stdUploadSection");
+if (stdUploadSection) {
+  stdUploadSection.addEventListener("dragover", (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "copy";
+    document.getElementById("stdUploadBtn")?.classList.add("drag-over");
+  });
+  stdUploadSection.addEventListener("dragleave", (e) => {
+    if (!stdUploadSection.contains(e.relatedTarget))
+      document.getElementById("stdUploadBtn")?.classList.remove("drag-over");
+  });
+  stdUploadSection.addEventListener("drop", async (e) => {
+    e.preventDefault();
+    document.getElementById("stdUploadBtn")?.classList.remove("drag-over");
+    if (!_stdCharId) { showPopupToast("캐릭터를 먼저 감지해주세요"); return; }
+    const files = [...(e.dataTransfer.files || [])].filter(f => f.type.startsWith("image/"));
+    if (!files.length) return;
+    const tab = await getCcfoliaTab();
+    if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
+    showPopupToast(`${files.length}개 업로드 중...`);
+    try {
+      const fileData = await Promise.all(files.map(async f => {
+        const buffer = await f.arrayBuffer();
+        const bufferArr = Array.from(new Uint8Array(buffer));
+        return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: bufferArr };
+      }));
+      const res = await chrome.tabs.sendMessage(tab.id, {
+        type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
+      });
+      if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
+      else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+    } catch (err) { showPopupToast("오류: " + err.message); }
+  });
+}
+
+// ── 팩 내보내기/불러오기 ──────────────────────────────────────────────
+document.getElementById("packExportBtn")?.addEventListener("click", async () => {
+  const packs = await getStandingPacks();
+  downloadJson({ standingPacks: packs }, "ccfolia-packs.json");
+});
+
+document.getElementById("packImportBtn")?.addEventListener("click", () => {
+  document.getElementById("packImportInput").click();
+});
+
+document.getElementById("packImportInput")?.addEventListener("change", async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
+  e.target.value = "";
+  const reader = new FileReader();
+  reader.onload = async (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      const imported = data.standingPacks ?? data;
+      if (!Array.isArray(imported)) { showPopupToast("올바른 팩 파일이 아닙니다"); return; }
+      const existing = await getStandingPacks();
+      const existingIds = new Set(existing.map(p => p.id));
+      const newPacks = imported.filter(p => !existingIds.has(p.id));
+      await saveStandingPacks([...existing, ...newPacks]);
+      await renderStandingPacks();
+      showPopupToast(`${newPacks.length}개 팩 불러옴`);
+    } catch { showPopupToast("파일 파싱 오류"); }
+  };
+  reader.readAsText(file);
+});
+
+// ── 이미지 호버 미리보기 ──────────────────────────────────────────────
+(function initImgPreview() {
+  const preview = document.getElementById("imgPreview");
+  if (!preview) return;
+  const img = preview.querySelector("img");
+
+  function positionPreview(e) {
+    const pad = 12;
+    let x = e.clientX + pad;
+    let y = e.clientY + pad;
+    const pw = preview.offsetWidth || 168;
+    const ph = preview.offsetHeight || 168;
+    if (x + pw > window.innerWidth) x = e.clientX - pw - pad;
+    if (y + ph > window.innerHeight) y = e.clientY - ph - pad;
+    preview.style.left = x + "px";
+    preview.style.top = y + "px";
+  }
+
+  document.addEventListener("mouseover", (e) => {
+    const thumb = e.target.closest("img.fav-item-thumb, img.std-lib-thumb");
+    if (!thumb || !thumb.src) return;
+    img.src = thumb.src;
+    preview.style.display = "block";
+    positionPreview(e);
+  });
+
+  document.addEventListener("mousemove", (e) => {
+    if (preview.style.display === "none") return;
+    positionPreview(e);
+  });
+
+  document.addEventListener("mouseout", (e) => {
+    const thumb = e.target.closest("img.fav-item-thumb, img.std-lib-thumb");
+    if (!thumb) return;
+    preview.style.display = "none";
+    img.src = "";
+  });
+})();
