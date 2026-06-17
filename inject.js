@@ -126,7 +126,7 @@
                   const f = v.mapValue?.fields ?? {};
                   return {
                     name: f.name?.stringValue ?? f.label?.stringValue ?? "",
-                    imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+                    imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
                   };
                 }),
               };
@@ -612,7 +612,7 @@
             const f = v.mapValue?.fields ?? {};
             return {
               name: f.name?.stringValue ?? f.label?.stringValue ?? "",
-              imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+              imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
             };
           });
           window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces }, "*");
@@ -968,9 +968,10 @@
               values: combined.map(f => ({
                 mapValue: { fields: {
                   name:     { stringValue: f.name },
-                  label:    { stringValue: f.name },     // ccfolia UI는 label 필드를 읽음
+                  label:    { stringValue: f.name },     // ccfolia face 이름 필드
+                  value:    { stringValue: f.imageUrl }, // ccfolia face 이미지 필드 (status/params 패턴)
                   imageUrl: { stringValue: f.imageUrl },
-                  url:      { stringValue: f.imageUrl }, // ccfolia UI는 url 필드를 읽음
+                  url:      { stringValue: f.imageUrl },
                 }},
               })),
             },
