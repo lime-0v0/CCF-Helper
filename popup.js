@@ -1,3 +1,27 @@
+// ── 인라인 이름 수정 헬퍼 ─────────────────────────────────────────────
+function startInlineRename(nameEl, inputEl, onSave) {
+  nameEl.style.display = "none";
+  inputEl.style.display = "";
+  inputEl.focus();
+  inputEl.select();
+  let done = false;
+  function finish(save) {
+    if (done) return;
+    done = true;
+    inputEl.style.display = "none";
+    nameEl.style.display = "";
+    if (save) {
+      const v = inputEl.value.trim();
+      if (v) onSave(v);
+    }
+  }
+  inputEl.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); finish(true); }
+    if (e.key === "Escape") finish(false);
+  });
+  inputEl.addEventListener("blur", () => finish(true), { once: true });
+}
+
 // ── 팝업 토스트 ─────────────────────────────
 function showPopupToast(msg) {
   const existing = document.getElementById("popup-toast");
@@ -353,9 +377,11 @@ async function renderFavTree() {
       <div class="fav-folder-header">
         <span class="fav-folder-arrow">▶</span>
         <span class="fav-folder-name">📁 ${escapeHtml(folder.name)}</span>
+        <input class="fav-folder-name-edit inline-rename-input" type="text" value="${escapeHtml(folder.name)}" style="display:none">
         <div class="fav-folder-actions">
           <button class="fav-run-all-btn" data-folder-id="${escapeHtml(folder.id)}" title="폴더 전체 생성" ${folderItems.length === 0 ? "disabled" : ""}>▶</button>
           <button class="io-btn fav-export-folder-btn" data-folder-id="${escapeHtml(folder.id)}" title="내보내기">⤴</button>
+          ${!isDefault ? `<button class="fav-rename-folder-btn" data-id="${escapeHtml(folder.id)}" title="이름 변경">✎</button>` : ""}
           ${!isDefault ? `<button class="del-folder-btn" data-id="${escapeHtml(folder.id)}" title="삭제">✕</button>` : ""}
         </div>
       </div>
@@ -451,6 +477,25 @@ async function renderFavTree() {
           bookmarks: d.bookmarks.filter((b) => b.folderId !== folder.id),
         });
         renderFavTree();
+      });
+    }
+
+    // ── 폴더 이름 변경 ──
+    const renameFolderBtn = folderEl.querySelector(".fav-rename-folder-btn");
+    if (renameFolderBtn) {
+      renameFolderBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        const nameSpan = folderEl.querySelector(".fav-folder-name");
+        const nameInput = folderEl.querySelector(".fav-folder-name-edit");
+        startInlineRename(nameSpan, nameInput, async (newName) => {
+          const d = await getFavData();
+          const f = d.folders.find(f => f.id === folder.id);
+          if (!f) return;
+          f.name = newName;
+          await saveFavData(d);
+          nameSpan.textContent = `📁 ${newName}`;
+          folder.name = newName;
+        });
       });
     }
 
@@ -1058,6 +1103,7 @@ async function renderStandingPacks() {
       <div class="std-pack-header">
         <span class="std-pack-arrow">▶</span>
         <span class="std-pack-name">${escapeHtml(pack.name)}</span>
+        <input class="std-pack-name-edit inline-rename-input" type="text" value="${escapeHtml(pack.name)}" style="display:none">
         <div class="std-pack-actions">
           <button class="std-pack-rename-btn" title="이름 변경">✎</button>
           <button class="std-pack-apply-btn" title="전체 캐릭터에 적용" ${disabledAttr}>▶</button>
@@ -1123,17 +1169,20 @@ async function renderStandingPacks() {
       applyAllBtn.textContent = orig; applyAllBtn.disabled = !_stdCharId;
     });
 
-    // 팩 이름 변경
-    packEl.querySelector(".std-pack-rename-btn")?.addEventListener("click", async (e) => {
+    // 팩 이름 변경 (인라인)
+    packEl.querySelector(".std-pack-rename-btn")?.addEventListener("click", (e) => {
       e.stopPropagation();
-      const newName = prompt("팩 이름 변경:", pack.name);
-      if (!newName?.trim() || newName.trim() === pack.name) return;
-      const ps = await getStandingPacks();
-      const p = ps.find(p => p.id === pack.id);
-      if (!p) return;
-      p.name = newName.trim();
-      await saveStandingPacks(ps);
-      renderStandingPacks();
+      const nameSpan = packEl.querySelector(".std-pack-name");
+      const nameInput = packEl.querySelector(".std-pack-name-edit");
+      startInlineRename(nameSpan, nameInput, async (newName) => {
+        const ps = await getStandingPacks();
+        const p = ps.find(p => p.id === pack.id);
+        if (!p) return;
+        p.name = newName;
+        await saveStandingPacks(ps);
+        nameSpan.textContent = newName;
+        pack.name = newName;
+      });
     });
 
     // 팩 삭제
