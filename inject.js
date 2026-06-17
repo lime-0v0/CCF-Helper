@@ -7,6 +7,7 @@
   "use strict";
 
   let authToken = null;
+  let _lastEditedChar = null; // XHR 인터셉터로 캐시한 최근 편집 캐릭터
 
   // ── 1. localStorage에서 Firebase 토큰 취득 (v8) ───────────────────────
   function tryLocalStorage() {
@@ -103,6 +104,39 @@
       authToken = value.slice(7);
     }
     return _xhrSetHeader.apply(this, arguments);
+  };
+
+  // ── XHR send 인터셉터: Firestore 채널 write에서 편집 중인 캐릭터 캐시 ──
+  const _xhrSend = XMLHttpRequest.prototype.send;
+  XMLHttpRequest.prototype.send = function (body) {
+    if (this.__helperUrl?.includes("firestore.googleapis.com") && body) {
+      try {
+        const params = new URLSearchParams(typeof body === "string" ? body : "");
+        const raw = params.get("req0__data__");
+        if (raw) {
+          const data = JSON.parse(raw);
+          for (const write of data.writes ?? []) {
+            const m = write.update?.name?.match(/\/characters\/([^/]+)$/);
+            if (m) {
+              const fields = write.update.fields ?? {};
+              _lastEditedChar = {
+                id: m[1],
+                name: fields.name?.stringValue ?? "",
+                faces: (fields.faces?.arrayValue?.values ?? []).map(v => {
+                  const f = v.mapValue?.fields ?? {};
+                  return {
+                    name: f.name?.stringValue ?? f.label?.stringValue ?? "",
+                    imageUrl: f.imageUrl?.stringValue ?? f.url?.stringValue ?? "",
+                  };
+                }),
+              };
+              console.log("[CCFHelper:xhr] char cached:", _lastEditedChar.id, _lastEditedChar.name);
+            }
+          }
+        }
+      } catch (_) {}
+    }
+    return _xhrSend.apply(this, arguments);
   };
 
   // 초기 토큰 취득 시도 (페이지 로드 시 이미 인증 상태인 경우)
@@ -456,6 +490,15 @@
     if (event.data.action === "SCAN_DIALOG_FOR_CHAR") {
       const { requestId } = event.data;
       let charData = null;
+
+      // ── 최우선: XHR 인터셉터로 캐시된 캐릭터 (Edit 다이얼로그 열 때 캡처) ──
+      if (_lastEditedChar?.id) {
+        charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
+        console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
+        window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+        return;
+      }
+
       // "Standing Image" 텍스트를 포함한 다이얼로그 우선, 없으면 전체 다이얼로그 스캔
       const dialogs = [...document.querySelectorAll("[role='dialog']")];
       const charDialogs = dialogs.filter(d =>
@@ -547,6 +590,12 @@
       const { requestId, roomId, charId } = event.data;
       (async () => {
         try {
+          // 캐시된 데이터가 같은 캐릭터면 REST 호출 없이 바로 반환
+          if (_lastEditedChar?.id === charId && Array.isArray(_lastEditedChar.faces)) {
+            console.log("[CCFHelper:faces] cache hit:", charId, _lastEditedChar.faces.length, "faces");
+            window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces: _lastEditedChar.faces }, "*");
+            return;
+          }
           await new Promise((resolve) => {
             try {
               const user = window.firebase?.auth?.()?.currentUser;
