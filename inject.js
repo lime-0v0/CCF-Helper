@@ -491,14 +491,6 @@
       const { requestId } = event.data;
       let charData = null;
 
-      // ── 최우선: XHR 인터셉터로 캐시된 캐릭터 (Edit 다이얼로그 열 때 캡처) ──
-      if (_lastEditedChar?.id) {
-        charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
-        console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
-        window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
-        return;
-      }
-
       // "Standing Image" 텍스트를 포함한 다이얼로그 우선, 없으면 전체 다이얼로그 스캔
       const dialogs = [...document.querySelectorAll("[role='dialog']")];
       const charDialogs = dialogs.filter(d =>
@@ -508,6 +500,24 @@
         ...charDialogs,
         ...dialogs.filter(d => !charDialogs.includes(d)),
       ];
+
+      // ── XHR 캐시 확인: 현재 열린 다이얼로그 이름과 대조해 유효하면 즉시 반환 ──
+      if (_lastEditedChar?.id) {
+        const primaryDialogForCheck = targets[0] ?? null;
+        const nameHint = _dialogNameHint(primaryDialogForCheck);
+        // nameHint가 없거나 캐시 이름과 일치하면 캐시 사용
+        const cacheValid = !nameHint ||
+          _lastEditedChar.name === nameHint ||
+          _lastEditedChar.name.includes(nameHint) ||
+          nameHint.includes(_lastEditedChar.name);
+        if (cacheValid) {
+          charData = { id: _lastEditedChar.id, name: _lastEditedChar.name };
+          console.log("[CCFHelper:dialog-scan] XHR cache hit:", charData);
+          window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
+          return;
+        }
+        console.log("[CCFHelper:dialog-scan] XHR cache 무효 — cache:", _lastEditedChar.name, "hint:", nameHint);
+      }
 
       // Redux store 미캐시 상태라면 document.body fiber에서도 탐색
       if (!_cachedReduxStore && document.body) {
@@ -566,6 +576,8 @@
           } catch (e) { console.warn("[CCFHelper:dialog-scan] Firestore fallback error:", e); }
         }
       }
+      // 탐색 결과로 캐시 갱신 (다음 요청에서 빠르게 반환)
+      if (charData?.id) _lastEditedChar = { id: charData.id, name: charData.name, faces: _lastEditedChar?.faces ?? [] };
       console.log("[CCFHelper:dialog-scan] result:", charData);
       window.postMessage({ __ccfoliaHelper: true, action: "SCAN_DIALOG_RESULT", requestId, charData }, "*");
       return;
