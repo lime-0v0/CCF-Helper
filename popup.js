@@ -1515,21 +1515,33 @@ document.getElementById("stdFileInput")?.addEventListener("change", async (e) =>
   const tab = await getCcfoliaTab();
   if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
 
-  showPopupToast(`${files.length}개 업로드 중...`);
+  const uploadBtn = document.getElementById("stdUploadBtn");
+  const origBtnHTML = uploadBtn?.innerHTML;
+  if (uploadBtn) { uploadBtn.disabled = true; uploadBtn.textContent = `⏳ 0/${files.length} 업로드 중...`; }
   try {
     const { authToken, userId } = await getUploadCredentials(tab);
     const uploaded = [];
-    for (const f of files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      if (uploadBtn) uploadBtn.textContent = `⏳ ${i + 1}/${files.length} 업로드 중...`;
       const faceName = "@" + f.name.replace(/\.[^.]+$/, "");
       const cdnUrl = await uploadFileDirect(f, authToken, userId);
       uploaded.push({ faceName, directUrl: cdnUrl });
     }
+    if (uploadBtn) uploadBtn.textContent = "Firestore 적용 중...";
     const res = await chrome.tabs.sendMessage(tab.id, {
       type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: uploaded,
     });
-    if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
-    else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+    if (res?.ok) {
+      showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
+      chrome.tabs.sendMessage(tab.id, { type: "SCROLL_TO_FACES" }).catch(() => {});
+    } else {
+      showPopupToast(`실패: ${res?.error ?? "오류"}`);
+    }
   } catch (err) { showPopupToast("오류: " + err.message); }
+  finally {
+    if (uploadBtn) { uploadBtn.disabled = false; uploadBtn.innerHTML = origBtnHTML; }
+  }
 });
 
 // 현재 스탠딩 저장 (캐릭터 faces → 팩)
@@ -1593,11 +1605,13 @@ document.getElementById("stdPackFileInput")?.addEventListener("change", async (e
   _pendingFilePackId = null;
   const tab = await getCcfoliaTab();
   if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
-  showPopupToast(`${files.length}개 업로드 중...`);
+  showPopupToast(`⏳ 0/${files.length} 업로드 중...`);
   try {
     const { authToken, userId } = await getUploadCredentials(tab);
     const uploadedItems = [];
-    for (const f of files) {
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      showPopupToast(`⏳ ${i + 1}/${files.length} 업로드 중...`);
       const name = f.name.replace(/\.[^.]+$/, "");
       const url = await uploadFileDirect(f, authToken, userId);
       uploadedItems.push({ name, url });
@@ -1637,21 +1651,33 @@ if (stdUploadSection) {
     if (!files.length) return;
     const tab = await getCcfoliaTab();
     if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
-    showPopupToast(`${files.length}개 업로드 중...`);
+    const dropUploadBtn = document.getElementById("stdUploadBtn");
+    const dropOrigHTML = dropUploadBtn?.innerHTML;
+    if (dropUploadBtn) { dropUploadBtn.disabled = true; dropUploadBtn.textContent = `⏳ 0/${files.length} 업로드 중...`; }
     try {
       const { authToken, userId } = await getUploadCredentials(tab);
       const uploaded = [];
-      for (const f of files) {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i];
+        if (dropUploadBtn) dropUploadBtn.textContent = `⏳ ${i + 1}/${files.length} 업로드 중...`;
         const faceName = "@" + f.name.replace(/\.[^.]+$/, "");
         const cdnUrl = await uploadFileDirect(f, authToken, userId);
         uploaded.push({ faceName, directUrl: cdnUrl });
       }
+      if (dropUploadBtn) dropUploadBtn.textContent = "Firestore 적용 중...";
       const res = await chrome.tabs.sendMessage(tab.id, {
         type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: uploaded,
       });
-      if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
-      else showPopupToast(`실패: ${res?.error ?? "오류"}`);
+      if (res?.ok) {
+        showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
+        chrome.tabs.sendMessage(tab.id, { type: "SCROLL_TO_FACES" }).catch(() => {});
+      } else {
+        showPopupToast(`실패: ${res?.error ?? "오류"}`);
+      }
     } catch (err) { showPopupToast("오류: " + err.message); }
+    finally {
+      if (dropUploadBtn) { dropUploadBtn.disabled = false; dropUploadBtn.innerHTML = dropOrigHTML; }
+    }
   });
 }
 

@@ -291,6 +291,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+  if (msg.type === "SCROLL_TO_FACES") {
+    window.postMessage({ __ccfoliaHelper: true, action: "SCROLL_TO_FACES" }, "*");
+    sendResponse({ ok: true });
+  }
 });
 
 // ── inject.js → popup으로 캐릭터 감지 알림 중계 ──────────────────────

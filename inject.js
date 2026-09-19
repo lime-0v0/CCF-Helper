@@ -773,6 +773,26 @@
       return;
     }
 
+    // ── SCROLL_TO_FACES: 업로드 완료 후 편집 다이얼로그의 스탠딩 섹션으로 스크롤 ──
+    if (event.data.action === "SCROLL_TO_FACES") {
+      const dialog = [...document.querySelectorAll("[role='dialog']")].find(d =>
+        d.textContent.includes("Standing") || d.textContent.includes("Character editing") || d.textContent.includes("Difference")
+      );
+      if (dialog) {
+        const imgs = dialog.querySelectorAll("img[draggable='false']");
+        if (imgs.length > 0) {
+          imgs[imgs.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest" });
+        } else {
+          // 아직 렌더링 전이면 잠시 후 재시도
+          setTimeout(() => {
+            const retryImgs = dialog.querySelectorAll("img[draggable='false']");
+            if (retryImgs.length > 0) retryImgs[retryImgs.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest" });
+          }, 1500);
+        }
+      }
+      return;
+    }
+
     // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
     if (event.data.action === "GET_PANEL_DATA") {
       const { requestId } = event.data;
