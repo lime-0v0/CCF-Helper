@@ -773,23 +773,18 @@
       return;
     }
 
-    // ── SCROLL_TO_FACES: 업로드 완료 후 편집 다이얼로그의 스탠딩 섹션으로 스크롤 ──
-    if (event.data.action === "SCROLL_TO_FACES") {
-      const dialog = [...document.querySelectorAll("[role='dialog']")].find(d =>
-        d.textContent.includes("Standing") || d.textContent.includes("Character editing") || d.textContent.includes("Difference")
-      );
-      if (dialog) {
-        const imgs = dialog.querySelectorAll("img[draggable='false']");
-        if (imgs.length > 0) {
-          imgs[imgs.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest" });
-        } else {
-          // 아직 렌더링 전이면 잠시 후 재시도
-          setTimeout(() => {
-            const retryImgs = dialog.querySelectorAll("img[draggable='false']");
-            if (retryImgs.length > 0) retryImgs[retryImgs.length - 1].scrollIntoView({ behavior: "smooth", block: "nearest" });
-          }, 1500);
+    // ── REFRESH_CHAR_DIALOG: 업로드 완료 후 Firestore SDK로 캐릭터 doc 강제 재조회
+    //    ccfolia의 onSnapshot 리스너가 최신 faces 배열을 수신 → 다이얼로그 자동 업데이트 ──
+    if (event.data.action === "REFRESH_CHAR_DIALOG") {
+      const { charId, roomId } = event.data;
+      try {
+        const db = window.firebase?.firestore?.();
+        if (db && charId && roomId) {
+          db.collection("rooms").doc(roomId).collection("characters").doc(charId)
+            .get({ source: "server" })
+            .catch(() => {});
         }
-      }
+      } catch (_) {}
       return;
     }
 

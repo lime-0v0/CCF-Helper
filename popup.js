@@ -1534,7 +1534,8 @@ document.getElementById("stdFileInput")?.addEventListener("change", async (e) =>
     });
     if (res?.ok) {
       showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
-      chrome.tabs.sendMessage(tab.id, { type: "SCROLL_TO_FACES" }).catch(() => {});
+      const roomId = new URL(tab.url).pathname.split("/").filter(Boolean).pop();
+      chrome.tabs.sendMessage(tab.id, { type: "REFRESH_CHAR_DIALOG", charId: _stdCharId, roomId }).catch(() => {});
     } else {
       showPopupToast(`실패: ${res?.error ?? "오류"}`);
     }
@@ -1670,7 +1671,8 @@ if (stdUploadSection) {
       });
       if (res?.ok) {
         showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
-        chrome.tabs.sendMessage(tab.id, { type: "SCROLL_TO_FACES" }).catch(() => {});
+        const roomId = new URL(tab.url).pathname.split("/").filter(Boolean).pop();
+        chrome.tabs.sendMessage(tab.id, { type: "REFRESH_CHAR_DIALOG", charId: _stdCharId, roomId }).catch(() => {});
       } else {
         showPopupToast(`실패: ${res?.error ?? "오류"}`);
       }
