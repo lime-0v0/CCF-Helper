@@ -758,6 +758,21 @@
       return;
     }
 
+    // ── GET_UPLOAD_CREDENTIALS: 팝업이 직접 업로드할 수 있도록 인증 정보 반환 ──
+    if (event.data.action === "GET_UPLOAD_CREDENTIALS") {
+      const { requestId } = event.data;
+      const send = () => {
+        const userId = getUserId();
+        window.postMessage({ __ccfoliaHelper: true, action: "GET_UPLOAD_CREDENTIALS_RESULT", requestId, authToken, userId }, "*");
+      };
+      try {
+        const user = window.firebase?.auth?.()?.currentUser;
+        if (user?.getIdToken) { user.getIdToken().then(t => { authToken = t; send(); }).catch(send); }
+        else send();
+      } catch (_) { send(); }
+      return;
+    }
+
     // ── GET_PANEL_DATA: 우클릭한 패널 데이터 반환 ──
     if (event.data.action === "GET_PANEL_DATA") {
       const { requestId } = event.data;

@@ -285,6 +285,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
       .catch(err => sendResponse({ ok: false, error: err.message }));
     return true;
   }
+  if (msg.type === "GET_UPLOAD_CREDENTIALS") {
+    getUploadCredentialsViaInject()
+      .then(creds => sendResponse({ ok: true, ...creds }))
+      .catch(err => sendResponse({ ok: false, error: err.message }));
+    return true;
+  }
 });
 
 // ── inject.js → popup으로 캐릭터 감지 알림 중계 ──────────────────────
@@ -409,6 +415,23 @@ function uploadFilesToCdnViaInject(files) {
     }
     window.addEventListener("message", onMsg);
     window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_FILES_TO_CDN", requestId, files }, "*");
+  });
+}
+
+function getUploadCredentialsViaInject() {
+  return new Promise((resolve, reject) => {
+    const requestId = `ccfh_creds_${++_reqCounter}_${Date.now()}`;
+    const timer = setTimeout(() => { window.removeEventListener("message", onMsg); reject(new Error("TIMEOUT")); }, 5000);
+    function onMsg(event) {
+      if (!event.data?.__ccfoliaHelper) return;
+      if (event.data.action !== "GET_UPLOAD_CREDENTIALS_RESULT") return;
+      if (event.data.requestId !== requestId) return;
+      clearTimeout(timer); window.removeEventListener("message", onMsg);
+      if (event.data.authToken && event.data.userId) resolve({ authToken: event.data.authToken, userId: event.data.userId });
+      else reject(new Error("인증 정보를 가져올 수 없습니다 (로그인 확인)"));
+    }
+    window.addEventListener("message", onMsg);
+    window.postMessage({ __ccfoliaHelper: true, action: "GET_UPLOAD_CREDENTIALS", requestId }, "*");
   });
 }
 

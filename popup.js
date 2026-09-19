@@ -1069,6 +1069,32 @@ let _stdCharId = null;
 let _stdCharName = null;
 let _pendingFilePackId = null;
 
+// ── 팝업에서 직접 CCF CDN 업로드 (버퍼를 sendMessage로 보내지 않음) ──
+async function getUploadCredentials(tab) {
+  const res = await chrome.tabs.sendMessage(tab.id, { type: "GET_UPLOAD_CREDENTIALS" });
+  if (!res?.ok) throw new Error(res?.error ?? "인증 정보 취득 실패");
+  return { authToken: res.authToken, userId: res.userId };
+}
+
+async function uploadFileDirect(file, authToken, userId) {
+  const buffer = await file.arrayBuffer();
+  const hashBuf = await crypto.subtle.digest("SHA-256", buffer);
+  const hashHex = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, "0")).join("");
+  const filePath = `users/${userId}/files/${hashHex}`;
+  const form = new FormData();
+  form.append("file", new Blob([buffer], { type: file.type || "image/png" }));
+  form.append("filePath", filePath);
+  const resp = await fetch("https://asia-northeast1-ccfolia-160aa.cloudfunctions.net/uploadFileV2", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${authToken}` },
+    body: form,
+  });
+  if (!resp.ok) throw new Error(`Upload ${resp.status}: ${await resp.text()}`);
+  const data = await resp.json();
+  if (typeof data.url === "string") return data.url;
+  return `https://storage.ccfolia-cdn.net/${data.name}?t=${Math.floor(Number(data.generation) / 1000)}`;
+}
+
 async function getStandingPacks() {
   return new Promise(r => chrome.storage.local.get({ standingPacks: null, standingLib: [] }, d => {
     if (d.standingPacks !== null) { r(d.standingPacks); return; }
@@ -1491,13 +1517,15 @@ document.getElementById("stdFileInput")?.addEventListener("change", async (e) =>
 
   showPopupToast(`${files.length}개 업로드 중...`);
   try {
-    const fileData = await Promise.all(files.map(async f => {
-      const buffer = await f.arrayBuffer();
-      const bufferArr = Array.from(new Uint8Array(buffer));
-      return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: bufferArr };
-    }));
+    const { authToken, userId } = await getUploadCredentials(tab);
+    const uploaded = [];
+    for (const f of files) {
+      const faceName = "@" + f.name.replace(/\.[^.]+$/, "");
+      const cdnUrl = await uploadFileDirect(f, authToken, userId);
+      uploaded.push({ faceName, directUrl: cdnUrl });
+    }
     const res = await chrome.tabs.sendMessage(tab.id, {
-      type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
+      type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: uploaded,
     });
     if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
     else showPopupToast(`실패: ${res?.error ?? "오류"}`);
@@ -1567,18 +1595,17 @@ document.getElementById("stdPackFileInput")?.addEventListener("change", async (e
   if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
   showPopupToast(`${files.length}개 업로드 중...`);
   try {
-    const fileData = await Promise.all(files.map(async f => {
-      const buffer = await f.arrayBuffer();
-      return { name: f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: Array.from(new Uint8Array(buffer)) };
-    }));
-    const res = await chrome.tabs.sendMessage(tab.id, {
-      type: "UPLOAD_FILES_TO_CDN_FROM_POPUP", files: fileData,
-    });
-    if (!res?.ok) throw new Error(res?.error ?? "오류");
+    const { authToken, userId } = await getUploadCredentials(tab);
+    const uploadedItems = [];
+    for (const f of files) {
+      const name = f.name.replace(/\.[^.]+$/, "");
+      const url = await uploadFileDirect(f, authToken, userId);
+      uploadedItems.push({ name, url });
+    }
     const packs = await getStandingPacks();
     const p = packs.find(p => p.id === packId);
     if (!p) { showPopupToast("팩을 찾을 수 없음"); return; }
-    for (const item of res.items) {
+    for (const item of uploadedItems) {
       let itemName = "@" + item.name;
       let ctr = 1;
       while (p.items.some(ex => ex.name === itemName)) itemName = `@${item.name} (${ctr++})`;
@@ -1586,7 +1613,7 @@ document.getElementById("stdPackFileInput")?.addEventListener("change", async (e
     }
     await saveStandingPacks(packs);
     await renderStandingPacks();
-    showPopupToast(`${res.items.length}개 추가됨!`);
+    showPopupToast(`${uploadedItems.length}개 추가됨!`);
   } catch (err) { showPopupToast("오류: " + err.message); }
 });
 
@@ -1612,13 +1639,15 @@ if (stdUploadSection) {
     if (!tab) { showPopupToast("ccfolia 탭 없음"); return; }
     showPopupToast(`${files.length}개 업로드 중...`);
     try {
-      const fileData = await Promise.all(files.map(async f => {
-        const buffer = await f.arrayBuffer();
-        const bufferArr = Array.from(new Uint8Array(buffer));
-        return { faceName: "@" + f.name.replace(/\.[^.]+$/, ""), type: f.type || "image/png", buffer: bufferArr };
-      }));
+      const { authToken, userId } = await getUploadCredentials(tab);
+      const uploaded = [];
+      for (const f of files) {
+        const faceName = "@" + f.name.replace(/\.[^.]+$/, "");
+        const cdnUrl = await uploadFileDirect(f, authToken, userId);
+        uploaded.push({ faceName, directUrl: cdnUrl });
+      }
       const res = await chrome.tabs.sendMessage(tab.id, {
-        type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: fileData,
+        type: "UPLOAD_STANDINGS_FROM_POPUP", charId: _stdCharId, files: uploaded,
       });
       if (res?.ok) showPopupToast(`스탠딩 ${res.count}개 추가됨!`);
       else showPopupToast(`실패: ${res?.error ?? "오류"}`);
