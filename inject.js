@@ -712,12 +712,26 @@
       return;
     }
 
-    // ── GET_CHAR_FACES: Firestore에서 캐릭터 faces 배열 읽기 ──
+    // ── GET_CHAR_FACES: 캐릭터 faces 읽기
+    //    Firebase SDK로 읽어야 다이얼로그와 동일한 데이터 (로컬 캐시 + pending writes 포함)
+    //    REST GET은 서버 커밋 상태만 반환하므로 오프라인 퍼시스턴스 환경에서 누락 발생 ──
     if (event.data.action === "GET_CHAR_FACES") {
       const { requestId, roomId, charId } = event.data;
       (async () => {
         try {
-          // 항상 Firestore에서 직접 읽어서 PATCH 후 stale cache 문제 방지
+          const db = window.firebase?.firestore?.();
+          if (db) {
+            const snap = await db.collection("rooms").doc(roomId).collection("characters").doc(charId).get();
+            const data = snap.data() ?? {};
+            const faces = (data.faces ?? []).map(f => ({
+              name: f.name ?? f.label ?? "",
+              imageUrl: f.iconUrl ?? f.imageUrl ?? f.url ?? f.value ?? "",
+            }));
+            if (_lastEditedChar?.id === charId) _lastEditedChar.faces = faces;
+            window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces }, "*");
+            return;
+          }
+          // Fallback: REST GET (Firebase SDK 미사용 환경)
           await new Promise((resolve) => {
             try {
               const user = window.firebase?.auth?.()?.currentUser;
@@ -737,6 +751,7 @@
               imageUrl: f.iconUrl?.stringValue ?? f.imageUrl?.stringValue ?? f.url?.stringValue ?? f.value?.stringValue ?? "",
             };
           });
+          if (_lastEditedChar?.id === charId) _lastEditedChar.faces = faces;
           window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces }, "*");
         } catch (err) {
           window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: false, error: err.message }, "*");
