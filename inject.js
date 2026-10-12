@@ -717,13 +717,7 @@
       const { requestId, roomId, charId } = event.data;
       (async () => {
         try {
-          // 캐시에 faces가 실제로 있을 때만 신뢰
-          // faces=[]는 Firestore에서 읽지 않고 초기화된 빈 배열일 수 있으므로 재확인
-          if (_lastEditedChar?.id === charId && _lastEditedChar.faces?.length > 0) {
-            console.log("[CCFHelper:faces] cache hit:", charId, _lastEditedChar.faces.length, "faces");
-            window.postMessage({ __ccfoliaHelper: true, action: "GET_CHAR_FACES_RESULT", requestId, success: true, faces: _lastEditedChar.faces }, "*");
-            return;
-          }
+          // 항상 Firestore에서 직접 읽어서 PATCH 후 stale cache 문제 방지
           await new Promise((resolve) => {
             try {
               const user = window.firebase?.auth?.()?.currentUser;
@@ -1139,12 +1133,15 @@
         if (f.directUrl) {
           cdnUrl = f.directUrl;
           console.log("[CCFHelper:upload] directUrl:", f.faceName, cdnUrl.slice(0, 60));
-        } else {
+        } else if (f.buffer) {
           // chrome.tabs.sendMessage은 ArrayBuffer를 {}로 직렬화하므로 Array로 복원
           const rawBuffer = Array.isArray(f.buffer) ? new Uint8Array(f.buffer).buffer : f.buffer;
           console.log("[CCFHelper:upload] uploading:", f.faceName, f.type, "bufferLen:", rawBuffer.byteLength);
           cdnUrl = await uploadFileToStorage(rawBuffer, f.type);
           console.log("[CCFHelper:upload] CDN URL:", cdnUrl);
+        } else {
+          console.warn("[CCFHelper:upload] skipping item with no url/buffer:", f.faceName);
+          continue;
         }
         uploaded.push({ faceName: f.faceName, imageUrl: cdnUrl });
       }
@@ -1195,6 +1192,10 @@
         body: JSON.stringify(body),
       });
       if (!patchResp.ok) throw new Error(`Firestore ${patchResp.status}: ${await patchResp.text()}`);
+      // 캐시 갱신: PATCH 후 _lastEditedChar를 최신 combined 배열로 업데이트
+      if (_lastEditedChar?.id === charId) {
+        _lastEditedChar.faces = combined.map(f => ({ name: f.name, imageUrl: f.imageUrl }));
+      }
       window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING_RESULT", requestId, success: true, count: uploaded.length }, "*");
     } catch (err) {
       window.postMessage({ __ccfoliaHelper: true, action: "UPLOAD_STANDING_RESULT", requestId, success: false, error: err.message }, "*");
